@@ -56,6 +56,9 @@ export function readConfig(env = process.env) {
       status: slash(env.API_STATUS || '/api/status'),
       assets: slash(env.API_ASSETS || '/api/assets'),
       config: slash(env.API_CONFIG || '/api/config'),
+      assetViewer: slash(env.API_ASSET_VIEWER || '/api/asset-viewer'),
+      docs: slash(env.API_DOCS || '/api/docs'),
+      openapi: slash(env.API_OPENAPI || '/api/openapi.json'),
     },
   };
 }

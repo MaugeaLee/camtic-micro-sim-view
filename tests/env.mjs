@@ -31,8 +31,8 @@ check('파일 로드', box.HOST === '10.0.0.1' && box.PORT === '1');
 check('이미 있는 키는 유지', box.ALREADY === 'env');
 fs.unlinkSync(tmp);
 
-const cfg = readConfig({ HOST: '192.168.0.8', PORT: '8123', APP_NAME: 'x', ASSET_DIR: 'a/b', ASSET_URL: 'files', API_PREFIX: 'svc', API_STATUS: 'svc/ok', API_ASSETS: 'svc/list', API_CONFIG: 'svc/cfg' });
-check('경로 정규화', cfg.assetUrl === '/files/' && cfg.apiPrefix === '/svc' && cfg.api.status === '/svc/ok');
+const cfg = readConfig({ HOST: '192.168.0.8', PORT: '8123', APP_NAME: 'x', ASSET_DIR: 'a/b', ASSET_URL: 'files', API_PREFIX: 'svc', API_STATUS: 'svc/ok', API_ASSETS: 'svc/list', API_CONFIG: 'svc/cfg', API_ASSET_VIEWER: 'svc/view', API_DOCS: 'svc/docs', API_OPENAPI: 'svc/openapi.json' });
+check('경로 정규화', cfg.assetUrl === '/files/' && cfg.apiPrefix === '/svc' && cfg.api.status === '/svc/ok' && cfg.api.assetViewer === '/svc/view' && cfg.api.docs === '/svc/docs' && cfg.api.openapi === '/svc/openapi.json');
 check('포트 숫자', cfg.port === 8123 && cfg.host === '192.168.0.8');
 
 const pub = publicConfig(cfg);

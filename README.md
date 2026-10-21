@@ -46,6 +46,9 @@ copy .env.example .env
 | `API_STATUS` | `/api/status` | 상태 |
 | `API_ASSETS` | `/api/assets` | GLB 목록 |
 | `API_CONFIG` | `/api/config` | 공개 설정(호스트·포트·경로) |
+| `API_ASSET_VIEWER` | `/api/asset-viewer` | 렌더 에셋 조회 + 테스트 뷰포트 |
+| `API_DOCS` | `/api/docs` | Swagger UI |
+| `API_OPENAPI` | `/api/openapi.json` | OpenAPI 3 스펙 |
 
 이미 있는 환경변수가 `.env`보다 우선한다. 브라우저는 `.env`를 읽지 않고, 서버가 `index.html`에 `window.__ENV`로 공개 값만 넣는다.
 
@@ -65,6 +68,11 @@ npm start
 |---|---|
 | http://127.0.0.1:8790/ | 빈 뷰포트 + 셀 목록 (GLB 안 받음) |
 | http://127.0.0.1:8790/?assets=1 | `PRESS` `SCREW` `SORT` GLB 로드 |
+| http://127.0.0.1:8790/api/docs | Swagger UI (엔드포인트 조회·GET 실행) |
+| http://127.0.0.1:8790/api/openapi.json | OpenAPI 3 스펙 |
+| http://127.0.0.1:8790/api/asset-viewer | 테스트 뷰포트 (브라우저) |
+| http://127.0.0.1:8790/api/asset-viewer?key=PRESS | 해당 셀만 미리보기 |
+| http://127.0.0.1:8790/api/asset-viewer?format=json | Three.js가 읽는 GLB/GLTF 목록 |
 
 재생·배속은 상단. 셀 목록에서 선택. 개발자 도구 콘솔에서 수동 로드:
 
@@ -85,6 +93,7 @@ npm test
 ```powershell
 curl http://127.0.0.1:8790/api/status
 curl http://127.0.0.1:8790/api/config
+curl http://127.0.0.1:8790/api/openapi.json
 ```
 
 ### 6. 멈추기

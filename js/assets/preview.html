@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Asset Viewer</title>
+<link rel="stylesheet" href="/css/style.css">
+<style>
+  .preview-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 10; display: flex; gap: 10px; align-items: center; padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  .preview-bar select { font: inherit; color: inherit; background: rgba(255,255,255,0.06); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+  #viewport { top: 40px; left: 312px; }
+  #note { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+  #btnPick { margin-left: 8px; }
+  #viewport.pick { cursor: crosshair; }
+  .preview-tree { top: 52px; bottom: 12px; width: 288px; }
+  .preview-tree h2 em { font-style: normal; font-weight: 400; margin-left: 8px; }
+  #treeSearch { width: 100%; margin: 0 0 8px; font: inherit; color: inherit; background: rgba(255,255,255,0.06); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+  #tree { font: 12px/1.45 ui-monospace, Consolas, monospace; }
+  #tree details { margin-left: 10px; }
+  #tree details > details, #tree details > .leaf { margin-left: 12px; }
+  #tree summary, #tree .leaf { cursor: pointer; padding: 2px 4px; border-radius: 4px; }
+  #tree summary:hover, #tree .leaf:hover, #tree .on { background: rgba(79, 179, 255, 0.14); }
+  #tree .kind { color: var(--muted); margin-left: 8px; font-size: 11px; }
+  #tree .nm.mesh { color: var(--accent); }
+</style>
+<script type="importmap">
+{ "imports": { "three": "/vendor/three/three.module.js", "three/addons/": "/vendor/three/addons/" } }
+</script>
+</head>
+<body>
+<script>/*__ENV__*/</script>
+<div class="preview-bar">
+  <b>Asset Viewer</b>
+  <select id="assetPick"></select>
+  <span id="note">조회 중…</span>
+  <button id="btnPick" type="button" title="뷰에서 호버·클릭으로 트리를 찾는다">클릭 모드</button>
+</div>
+<aside class="panel left preview-tree">
+  <h2>오브젝트 트리 <em id="treeCount"></em></h2>
+  <input id="treeSearch" type="search" placeholder="이름 검색" autocomplete="off">
+  <div id="tree"></div>
+</aside>
+<div id="viewport"></div>
+<script type="module" src="/js/assets/preview.js"></script>
+</body>
+</html>

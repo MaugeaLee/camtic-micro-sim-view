@@ -9,6 +9,7 @@
 ```
 npm start          → .env 의 HOST:PORT (예제 127.0.0.1:8790)
 npm test           → tests/*.mjs 헤드리스
+/api/docs          → Swagger UI (경로 키는 API_DOCS)
 ?assets=1          → 셀 GLB 자동 로드 (기본 꺼짐)
 __viewer.loadAssets()   콘솔에서 수동 로드
 ```
@@ -73,6 +74,9 @@ frame():  rdt = min(Δ, 0.1)
 | `API_STATUS` | `/api/status` | 이름·시각·GLB 키 · 공개 env |
 | `API_ASSETS` | `/api/assets` | GLB 파일·크기 |
 | `API_CONFIG` | `/api/config` | 호스트·포트·URL (디스크 경로 없음) |
+| `API_ASSET_VIEWER` | `/api/asset-viewer` | Three.js 가 읽는 GLB/GLTF 조회. 브라우저면 테스트 뷰포트, `?format=json` 이면 목록 |
+| `API_DOCS` | `/api/docs` | Swagger UI. OpenAPI 스펙을 읽어 GET 실행 |
+| `API_OPENAPI` | `/api/openapi.json` | OpenAPI 3 JSON. 경로는 위 키와 같음 |
 
 `index.html`의 `/*__ENV__*/`에 공개 설정을 넣는다. API는 GET만(나머지 405). `context/`·`docx/`·`server/`는 서빙하지 않는다. `.env`는 git에 올리지 않는다.
 

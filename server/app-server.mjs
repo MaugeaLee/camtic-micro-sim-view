@@ -3,13 +3,15 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { ROOT, mergeConfig, publicConfig, resolveAssetDir } from './env.mjs';
+import { catalog, wantsHtml } from './asset-viewer.mjs';
+import { buildOpenApi } from './openapi.mjs';
 
 export { ROOT };
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml',
-  '.png': 'image/png', '.ico': 'image/x-icon', '.glb': 'model/gltf-binary',
+  '.png': 'image/png', '.ico': 'image/x-icon', '.glb': 'model/gltf-binary', '.gltf': 'model/gltf+json',
 };
 
 const ENV_MARK = '/*__ENV__*/';
@@ -48,7 +50,7 @@ const json = (res, code, body) => {
 
 const isApi = (p, cfg) => p === cfg.apiPrefix || p.startsWith(`${cfg.apiPrefix}/`);
 
-function sendIndex(res, file, cfg) {
+function sendHtml(res, file, cfg) {
   let html = fs.readFileSync(file, 'utf8');
   const payload = `window.__ENV = ${JSON.stringify(publicConfig(cfg))};`;
   html = html.includes(ENV_MARK) ? html.replace(ENV_MARK, payload) : `${html.replace('</head>', `<script>${payload}</script></head>`)}`;
@@ -70,6 +72,15 @@ export function createHandler(cfg) {
       }
       if (p === cfg.api.assets) return json(res, 200, listAssets(assetDir));
       if (p === cfg.api.config) return json(res, 200, publicConfig(cfg));
+      if (p === cfg.api.assetViewer) {
+        const key = url.searchParams.get('key');
+        const body = catalog(assetDir, cfg.assetUrl, key);
+        if (key && body.error) return json(res, 404, body);
+        if (wantsHtml(req, url)) return sendHtml(res, path.join(ROOT, 'js', 'assets', 'preview.html'), cfg);
+        return json(res, 200, body);
+      }
+      if (p === cfg.api.docs) return sendHtml(res, path.join(ROOT, 'js', 'assets', 'swagger.html'), cfg);
+      if (p === cfg.api.openapi) return json(res, 200, buildOpenApi(cfg));
       return json(res, 404, { error: 'not found' });
     }
 
@@ -77,7 +88,7 @@ export function createHandler(cfg) {
     if (!file || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
       res.writeHead(404); return res.end('not found');
     }
-    if (path.basename(file) === 'index.html') return sendIndex(res, file, cfg);
+    if (path.basename(file) === 'index.html') return sendHtml(res, file, cfg);
     res.writeHead(200, { 'content-type': MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream' });
     fs.createReadStream(file).pipe(res);
   };

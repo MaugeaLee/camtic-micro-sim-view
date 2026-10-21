@@ -36,6 +36,22 @@ try {
   check('화이트리스트 밖 404', (await get('/server.mjs')).status === 404 && (await get('/context/facts.json')).status === 404);
   check('API 쓰기 거부', (await get(cfg.api.status, { method: 'POST' })).status === 405);
   check('없는 API 404', (await get(`${cfg.apiPrefix}/nope`)).status === 404);
+
+  const av = await (await get(`${cfg.api.assetViewer}?format=json`)).json();
+  check('asset-viewer 목록', av.count >= 3 && av.items.every((a) => a.three && a.url && a.format === 'glb'));
+  const one = await (await get(`${cfg.api.assetViewer}?format=json&key=${av.items[0].key}`)).json();
+  check('asset-viewer 단건', one.count === 1 && one.items[0].key === av.items[0].key);
+  check('asset-viewer 없는 키', (await get(`${cfg.api.assetViewer}?format=json&key=__nope__`)).status === 404);
+  const page = await get(`${cfg.api.assetViewer}?view=1&key=${av.items[0].key}`, { headers: { accept: 'text/html' } });
+  const pageHtml = await page.text();
+  check('asset-viewer 뷰포트 HTML', page.status === 200 && pageHtml.includes('preview.js') && pageHtml.includes('window.__ENV'));
+
+  const spec = await (await get(cfg.api.openapi)).json();
+  check('openapi 스펙', spec.openapi.startsWith('3.') && spec.paths[cfg.api.status] && spec.paths[cfg.api.docs]);
+  const docs = await get(cfg.api.docs);
+  const docsHtml = await docs.text();
+  check('swagger UI', docs.status === 200 && docsHtml.includes('swagger.js') && docsHtml.includes('window.__ENV') && docsHtml.includes(`"port":${port}`));
+  check('docs 쓰기 거부', (await get(cfg.api.docs, { method: 'POST' })).status === 405);
 } finally {
   server.close();
 }
@@ -43,7 +59,7 @@ try {
 const custom = await startServer({
   port: 0, host: '127.0.0.1', name: 'alt',
   assetUrl: '/models/', apiPrefix: '/v1',
-  api: { status: '/v1/health', assets: '/v1/files', config: '/v1/cfg' },
+  api: { status: '/v1/health', assets: '/v1/files', config: '/v1/cfg', docs: '/v1/docs', openapi: '/v1/openapi.json' },
 });
 try {
   const u = `http://127.0.0.1:${custom.port}`;
@@ -51,6 +67,9 @@ try {
   check('커스텀 엔드포인트', health.name === 'alt' && (await fetch(`${u}/api/status`)).status === 404);
   const page = await (await fetch(`${u}/`)).text();
   check('주입된 경로가 커스텀', page.includes('/v1/health') && page.includes('/models/'));
+  const spec = await (await fetch(`${u}/v1/openapi.json`)).json();
+  check('커스텀 openapi', spec.paths['/v1/health'] && spec.paths['/models/{file}'] && !spec.paths['/api/status']);
+  check('커스텀 swagger', (await fetch(`${u}/v1/docs`)).status === 200 && (await fetch(`${u}/api/docs`)).status === 404);
 } finally {
   custom.server.close();
 }
