@@ -1,20 +1,27 @@
 // 권위 있는 뷰어 상태. 뷰·UI·데이터는 여기서 읽기만 하고 변경은 메서드로 요청한다. DOM 없음.
 import { CELLS, CELL_STATES } from './cells.js';
 import { MAX_STEP, SPEEDS } from '../core/env.js';
+import { defaultLayout } from './layout.js';
+import { Plant, SCENARIOS } from './scenario.js';
 
 const LOG_CAP = 160;
 
 export class ViewerState {
-  constructor({ cells = CELLS, quiet = false } = {}) {
+  // scenario: SCENARIOS 키. 없으면 셀 상태는 setCellState 로만 바뀐다.
+  constructor({ cells = CELLS, quiet = false, scenario = null, layout = defaultLayout(), amr = null } = {}) {
     this.time = 0;
     this.running = false;
     this.speed = 1;
     this.quiet = quiet;
     this.cells = cells.map((c) => ({ id: c.id, label: c.label, asset: c.asset, state: 'IDLE', loaded: false }));
     this.selected = null;
+    this.followed = null;
     this.logs = [];
     this.logSeq = 0;
     this.events = [];
+    this.scenario = scenario;
+    if (scenario && !SCENARIOS[scenario]) throw new Error(`없는 시나리오: ${scenario}`);
+    this.plant = scenario ? new Plant(SCENARIOS[scenario], { layout, cells: this.cells, amr }) : null;
   }
 
   // 벽시계 dt(초)를 받아 배속을 곱하고 MAX_STEP 단위로 나눠 진행한다.
@@ -31,7 +38,12 @@ export class ViewerState {
 
   step(h) {
     this.time += h;
+    this.plant?.step(h, this);
   }
+
+  get amrs() { return this.plant?.fleet.amrs ?? []; }
+
+  setLayout(doc) { this.plant?.setLayout(doc); }
 
   setRunning(on) {
     if (this.running === !!on) return;
@@ -64,7 +76,16 @@ export class ViewerState {
   select(id) {
     if (id !== null && !this.cell(id)) throw new Error(`없는 셀: ${id}`);
     this.selected = id;
+    if (id !== null) this.followed = null;
     this.emit('select', { id });
+  }
+
+  // 카메라가 따라갈 AMR. 셀 선택과 함께 쓰지 않는다.
+  follow(id) {
+    if (id !== null && !this.amrs.some((a) => a.id === id)) throw new Error(`없는 AMR: ${id}`);
+    this.followed = id;
+    if (id !== null) { this.selected = null; this.emit('select', { id: null }); }
+    this.emit('follow', { id });
   }
 
   log(level, title, body = {}) {

@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node tests/state.mjs && node tests/hub.mjs && node tests/field.mjs && node tests/layout.mjs && node tests/env.mjs && node tests/openapi.mjs && node tests/asset-viewer.mjs && node tests/tree.mjs && node tests/anim.mjs && node tests/rig.mjs && node tests/movers.mjs && node tests/server.mjs"
+    "test": "node tests/state.mjs && node tests/hub.mjs && node tests/field.mjs && node tests/layout.mjs && node tests/env.mjs && node tests/openapi.mjs && node tests/asset-viewer.mjs && node tests/tree.mjs && node tests/anim.mjs && node tests/rig.mjs && node tests/movers.mjs && node tests/glb.mjs && node tests/scenario.mjs && node tests/server.mjs"
   },
   "engines": { "node": ">=20" }
 }

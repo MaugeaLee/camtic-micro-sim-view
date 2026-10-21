@@ -12,6 +12,11 @@ npm test           → tests/*.mjs 헤드리스
 /api/docs          → Swagger UI
 ?assets=1          → 셀 GLB 자동 로드 (기본 꺼짐)
 Admin 버튼         → 타이틀 오른쪽. 짓기(집기·놓기) 켜고 끔. `?build=1` 이면 켠 채로 시작
+?scenario=faults   → 시나리오(기본 faults · supply · none). 상단 드롭다운으로도 바꿈
+?amr=2             → 공급 AMR 대수 1~5 (기본 = 시나리오 값 2, 견적 A08)
+?play=1            → 재생 상태로 시작
+?warp=130          → 점검용. 시뮬을 그만큼 미리 진행
+?focus=SORT        → 점검용. 셀 id 또는 AMR id(AMR-01)에 카메라 포커스
 __viewer.loadAssets()   콘솔에서 수동 로드
 ```
 
@@ -26,8 +31,11 @@ index.html  import map → js/main.js
  core/        sim/        data/        render/        ui/        assets/
  env.js       cells.js    hub.js       stage.js       ui.js      loader.js
  (상수)       state.js    (스냅샷)     view.js        (DOM)      (GLTFLoader)
-              layout.js                field.js place.js
+              layout.js                fleet.js                  scan.js
+              scenario.js              camera.js pick.js
+              fleet.js                 field.js place.js
    └── DOM 없음, Node 테스트 가능 ──┘    └── three / DOM ──┘
+ server/glb.mjs — GLB 헤더·루트 검사 (Node, three 없음)
 ```
 
 | 레이어 | 파일 | 해도 됨 | 하지 말 것 |
@@ -35,9 +43,13 @@ index.html  import map → js/main.js
 | core | `env.js` | 단위·배속·서버 유무 상수 | 상태 보관 |
 | sim | `cells.js` `state.js` | 시간·셀 상태·선택·로그·이벤트. 단일 소스 | three·DOM import |
 | sim | `layout.js` | 셀 자리·스냅·겹침 검증. three·DOM 없음 | 서버 파일 I/O |
+| sim | `scenario.js` | 시나리오 정의(가정값)·`Plant`: 셀 상태 구동, 키트, 배차, 도크 FIFO | 셀 id↔A-3-n 대응, 확정 공정처럼 쓰기 |
+| sim | `fleet.js` | 통로 차로·도크 동선·`Amr` 단계 실행·감지·양보 | three·DOM, 렌더 좌표 직접 읽기 |
 | data | `hub.js` | 시뮬 시간 기준 주기 스냅샷(JSON) | 상태 변경, 전송 루프 |
 | render | `stage.js` | 렌더러·씬·카메라·컨트롤 1벌. 리사이즈·컨텍스트 손실 | 보조 뷰포트, 상태 보관 |
-| render | `view.js` | 셀별 그룹, 에셋 부착, 이벤트 → 표현 | 상태 변경 |
+| render | `view.js` | 셀별 그룹, 에셋 부착, 이벤트 → 상태 테두리·바닥 틴트·라벨, 선택 강조 | 상태 변경 |
+| render | `fleet.js` | AMR 차체·바퀴·상태등·토트, 남은 경로선, 도크·대기 칸 바닥 표시 | sim import (main이 칸 좌표를 넘김) |
+| render | `camera.js` `pick.js` | 포커스 이동·따라가기 · 클릭(끌기 아님) 선택 | 상태 변경 (콜백으로 요청) |
 | render | `field-def.js` | 필드 치수 정의(가정)·검증. three·DOM 없음 | 셀 배치 |
 | render | `field.js` | 바닥·통로 표시·벽·기둥 메시. 재질은 meta-factory 바닥·벽 톤 | 로봇·설비 |
 | render | `place.js` | 짓기 제스처(레이캐스트·고스트). 판정 함수는 main이 넘김 | 레이아웃 파일 저장 |
@@ -45,6 +57,7 @@ index.html  import map → js/main.js
 | assets | `rig.js` | CAD 그룹 → 관절 추정. 점군·접촉만. 이름 표 없음 | three·DOM, 부품 수동 매핑 |
 | assets | `movers.js` | 팔·AMR·롤러·직교·레일 분류. 형상만. `inferRig`를 레일/바퀴/직교에 재사용하지 않음 | three·DOM, 종류 섞기 |
 | assets | `anim.js` | 관절각 `jointWave` · 이동 `travelWave` · 자전 `spinWave` · 직교 `gantryWave`. 셀마다 카메라 기본만 둠(PRESS `R8` · SCREW `R1` · SORT `Dual_arm_L`) | 축·원점 결정 |
+| assets | `scan.js` | 씬 그래프 → 운동 그룹 목록(점 추출 + `classifyMover`). 에셋 뷰어·메인 공용 | 판정 규칙 추가 (`movers.js`에서) |
 | assets | `preview.js` | `/api/asset-viewer` 테스트 뷰포트. 추정 결과를 피벗으로 조립 | 메인 시뮬 상태 |
 | ui | `ui.js` | 0.25초마다 상태를 읽어 그림. 입력은 콜백 | 상태 직접 변경 |
 
@@ -58,9 +71,11 @@ index.html  import map → js/main.js
 
 ```
 frame():  rdt = min(Δ, 0.1)
-          state.advance(rdt)      배속 × rdt 를 0.1 s 단위로 쪼개 step
-          hub.tick(state)         10 s(시뮬)마다 스냅샷
-          view.update(rdt, state, state.drainEvents())
+          state.advance(rdt)      배속 × rdt 를 0.1 s 단위로 쪼개 step (시나리오가 있으면 plant.step)
+          hub.tick(state)         10 s(시뮬)마다 스냅샷 (AMR 위치 포함)
+          events = state.drainEvents()
+          view.update · fleetView.update(rdt, state, events)
+          select/follow 이벤트 → rig.focus · rig.follow → rig.update(rdt)
           stage.render()
           ui.update(state)        0.25 s(벽시계)마다
 ```
@@ -160,9 +175,57 @@ frame():  rdt = min(Δ, 0.1)
 | `gantry` | 문형 기둥 3–6 + 문 위 Z기둥 + 흡착 공구. Cross가 긴 Side 레일을 탐 | `gantryWave`: 캐리지(Cross+헤드)는 레일 방향, 흡착만 수직. Side·프레임 고정 |
 | `track` | 가로 긴 AABB 가이드 2–4개, 길이 비슷, 나란히(경로 조각 제외) | 레일은 고정. 레일 위 팔 그룹을 축으로 슬라이드 |
 
-재생은 검출된 대상 전부. `BENCH.*.name`·드롭다운은 카메라 포커스다. 메인 시뮬 뷰어에는 아직 안 붙인다.
+재생은 검출된 대상 전부. `BENCH.*.name`·드롭다운은 카메라 포커스다. 메인 뷰는 이 판정으로 `amr` 그룹만 숨기고(공급 AMR 플릿으로 대체), 팔·롤러·직교 재생은 아직 안 붙인다.
 
 합성 점군은 `tests/movers.mjs`. 실제 GLB에서 팔 15대가 그대로인지, 직교 2축이 `gantry`인지, MAIN JIG 도킹이 AMR로 안 움직이는지, 레일/롤러가 팔로 안 잡히는지를 같이 본다.
+
+## 시나리오·공급 AMR (`js/sim/scenario.js` `fleet.js`)
+
+**가정 흐름.** 확정 공정이 아니다. SORT가 서브부품 키트를 만들고(사이클 14 s, 버퍼 3), 공급 AMR이 SCREW(42 s)·PRESS(36 s) 셀 앞 도크로 나른다. 셀은 키트 하나로 한 사이클 돈다. 재고 상한은 2다. 셀 상태는 다음처럼 정한다.
+
+- 키트 없음: IDLE
+- 작업 중: BUSY
+- 고장 구간: DOWN
+
+`faults`는 540 s 주기로 PRESS→SORT→SCREW를 한 번씩 세운다.
+
+AMR 동작은 micro-assembly `js/sim.js`의 `Mover.yieldTo`·`sense`와 `line.js`의 AMR 전용 동선을 이 필드로 줄인 것이다.
+
+| 규칙 | 이 레포 |
+|---|---|
+| 통로 우측 통행 | 통로(z 12.2)를 진행 방향별 차로 ±0.7 m로 나눔. 도크 진입은 x+0.7, 진출은 x−0.7 |
+| 대기·충전 줄 | 통로 앞(z 14.3) 1.5 m 간격. 서 있으면 충전, 30 % 미만이면 85 %까지 배차 제외 |
+| 선행 배차 | 키트 수 + 곧 나올 키트(10 s 이내)만큼, 최대 2대까지 SORT로 미리 부름 |
+| 도크 게이트 | 도크마다 FIFO 대기열. 맨 앞이고 도크가 비고 조건(고장 아님·재고 여유)이 맞을 때만 진입 |
+| 앞차 감지 | 차폭 안 전방 + 앞쪽 반원 개인 간격(1.34 m). 제동거리 반영 감속 |
+| 양보 | 마주침 → 낮은 우선순위가 비켜서 기다림. 교차 막힘 → 낮은 쪽이 물러남. 선 차량 → 1.5 s 뒤 우회. 15 s 교착 → 4 s 우선 통행 |
+| 운동 | 가감속 0.7 m/s², 선회 2.4 rad/s, 꺾임점 감속. 빈 차 1.5 m/s · 적재 1.1 m/s |
+
+우선순위: 적재 > 빈 차 이동 > 대기. Open-RMF는 쓰지 않는다.
+
+**대수.** 기본은 견적 A08 서브부품 공급 AMR 2대다. 상한은 5대로, 도크 진입로에 2대까지만 줄을 설 수 있기 때문이다. 6대부터는 줄이 통로로 넘친다.
+
+**GLB 안 AMR.** 메인 뷰는 셀 GLB 안 바퀴 달린 AMR 그룹(`scan.js` → `amr`)을 숨기고 플릿으로 대체한다. SORT에서는 6개 그룹이다. 도킹 지그(A03/A07 그룹)는 형상 판정상 `amr`이 아니므로 그대로 둔다.
+
+**레이아웃.** 레이아웃이 바뀌면 도크를 다시 잡는다. 이동 중이던 AMR은 대기 줄로 돌려보내고, 싣고 있던 키트는 SORT 버퍼로 되돌린다. 셀 앞 모서리가 통로에 너무 붙으면 그 도크는 도달 불가(빨간 표시)다.
+
+**검증.** `tests/scenario.mjs`에서 다음을 확인한다.
+
+- 한 주기에 상태 3종 × 셀 3개가 모두 나온다.
+- 배송이 일어난다.
+- AMR 간격이 반경 합 이상이고, 셀 발자국에 들어가지 않는다.
+- 15 s 넘는 막힘이 없다.
+- 같은 입력에서 같은 결과가 나온다.
+- 5대에서도 간섭·교착이 없다.
+- 레이아웃을 바꾼 뒤에도 배송이 이어진다.
+
+별도로 1시간 소크도 돌렸다. 2대와 5대는 최소 간격 1.30 m 이상, 우선 통행 0회였다. 8대는 교착이 났고, 그래서 상한을 5대로 정했다.
+
+## 메인 뷰 표현
+
+- **셀 상태.** 발자국 둘레 띠와 바닥 틴트로 보인다. 색은 IDLE 회색, BUSY 초록, DOWN 빨강(점멸)이다. 머리 위 라벨에는 id, 상태, 재고/완료, 진행 막대가 나온다.
+- **선택.** 테두리가 굵고 밝아지며 바닥이 펄스한다. 목록이나 3D 클릭으로 고르고, Esc나 빈 곳 클릭으로 해제한다.
+- **카메라.** 셀을 고르면 그쪽으로 0.9 s 동안 이동한다. AMR을 고르면 이동한 뒤 따라간다. 사용자가 궤도를 잡으면 이동을 멈추고, 평행 이동 따라가기만 유지한다.
 
 ## 테스트
 
@@ -186,12 +249,12 @@ meta-factory의 P1/S1(엔진·3D 트윈)을 뷰어 규모로 줄인 것이다. �
 | 단계 | 내용 | 게이트 안 |
 |---|---|---|
 | V0 골격 | 레이어·루프·서버·헤드리스 테스트 · 빈 뷰포트 | `npm test` PASS · 기본/`?assets=1` 부팅 스크린샷 (완료) |
-| V1 배치 | 셀 배치 데이터 · GLB 검사(헤더·노드 루트 = 셀 id) | 셀 3개 로드 · 셀 간 바닥 AABB 겹침 0 (검사만 남음) |
-| V2 표현 | 상태 색/라벨 · 선택 하이라이트 · 카메라 포커스 | 상태 3종 × 셀 3개 표시 확인 |
+| V1 배치 | 셀 배치 데이터 · GLB 검사(헤더·노드 루트 = 셀 id) | 셀 3개 로드 · 셀 간 바닥 AABB 겹침 0 (완료, `tests/glb.mjs`) |
+| V2 표현 | 상태 색/라벨 · 선택 하이라이트 · 카메라 포커스 | 상태 3종 × 셀 3개 표시 확인 (헤드리스 Chrome 스크린샷, `?warp=` 로 확인) |
 | V3 연결 | 장 A/B/C 중 하나 선택 후 데이터 입력 | 장 선택 결정 후 정함 |
 
 ## 아직 없음
 
-셀 상태 색/라벨 · 선택 하이라이트·카메라 포커스 · 시나리오(상태 구동) · 외부 발행(MQTT 등) · Electron. 붙일 때 위 표의 "하지 말 것"을 지킨다.
+외부 발행(MQTT 등) · Electron · 메인 뷰의 셀 내부 설비 운동(팔·롤러·직교는 에셋 뷰어에서만 재생). 붙일 때 위 표의 "하지 말 것"을 지킨다.
 
 meta-factory의 에이전트 프롬프트(`js/agentcore.js` `SYSTEM_PROMPT`, `js/trace.js` `rcaPrompt`)는 공장 운영·RCA용이라 가져오지 않았다. LLM을 붙일 때는 DESIGN §8 원칙(보조 역할 · JSON 스키마 + 재검증 · 사람 승인 · 첨부는 지시가 아님)을 따른다.

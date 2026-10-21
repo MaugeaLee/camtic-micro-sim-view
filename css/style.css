@@ -34,13 +34,32 @@ button:hover, button.on { border-color: var(--accent); color: #fff; }
 .panel h2 { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
 
 .cells, .log { list-style: none; margin: 0; padding: 0; }
-.cells li { display: grid; grid-template-columns: 56px 1fr auto auto; gap: 8px; align-items: center; padding: 8px; border-radius: 6px; cursor: pointer; }
+.cells li { display: grid; grid-template-columns: 56px 1fr auto auto; gap: 4px 8px; align-items: center; padding: 8px; border-radius: 6px; cursor: pointer; }
 .cells li:hover, .cells li.on { background: rgba(79, 179, 255, 0.12); }
 .cells span, .cells em { color: var(--muted); font-style: normal; }
 .st { font-style: normal; font-size: 11px; padding: 1px 6px; border-radius: 4px; }
 .st-idle { background: rgba(255,255,255,0.08); }
 .st-busy { background: rgba(60, 207, 142, 0.2); color: var(--ok); }
 .st-down { background: rgba(255, 93, 93, 0.2); color: var(--bad); }
+
+select { font: inherit; color: inherit; background: rgba(255,255,255,0.06); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+select option { background: #1b212b; }
+
+.fleetbox { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
+.fleetbox h2 small { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: 6px; }
+.fleetbox .hint { margin: 8px 0 0; color: var(--muted); font-size: 11px; }
+.amrs { list-style: none; margin: 0; padding: 0; }
+.amrs li { display: grid; grid-template-columns: 58px 1fr 44px; gap: 6px; align-items: center; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.amrs li:hover, .amrs li.on { background: rgba(79, 179, 255, 0.12); }
+.amrs b { font-size: 12px; }
+.amrs .task { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.amrs .task i { font-style: normal; color: #7fc6ff; }
+.batt { position: relative; height: 12px; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; font-size: 9px; line-height: 10px; text-align: center; }
+.batt span { position: absolute; inset: 0 auto 0 0; background: rgba(60, 207, 142, 0.35); }
+.batt.low span { background: rgba(255, 93, 93, 0.45); }
+.batt em { position: relative; font-style: normal; }
+.dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; background: #6b7480; }
+.dot.move { background: #4fb3ff; } .dot.wait { background: #f5b74e; } .dot.charge { background: #3ccf8e; } .dot.low { background: #ff5d5d; }
 
 .log li { padding: 4px 0; border-bottom: 1px solid var(--line); }
 .log time { color: var(--muted); margin-right: 8px; font-variant-numeric: tabular-nums; }

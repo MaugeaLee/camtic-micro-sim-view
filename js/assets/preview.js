@@ -6,7 +6,8 @@ import { runtime, apiPath } from '../core/runtime.js';
 import { SPEEDS } from '../core/env.js';
 import { toTree, countNodes, findObject, objectToId, ancestorIds, renderTreeHtml, esc } from './tree.js';
 import { recipeFor, jointWave, travelWave, spinWave, gantryWave } from './anim.js';
-import { classifyMover, pointOnTrack } from './movers.js';
+import { pointOnTrack } from './movers.js';
+import { planFor, scanMovers } from './scan.js';
 
 const $ = (id) => document.getElementById(id);
 const loader = new GLTFLoader();
@@ -162,56 +163,6 @@ function paintClock() {
   for (const b of $('speedSeg').children) {
     b.classList.toggle('on', Number(b.dataset.speed) === (drive?.speed ?? 1));
   }
-}
-
-const POINT_CAP = 4000;
-
-function partPoints(obj) {
-  const meshes = [];
-  obj.traverse((o) => { if (o.isMesh && o.geometry?.attributes?.position) meshes.push(o); });
-  const total = meshes.reduce((n, m) => n + m.geometry.attributes.position.count, 0);
-  const step = Math.max(1, Math.ceil(total / POINT_CAP));
-  const out = [], v = new THREE.Vector3();
-  for (const m of meshes) {
-    const pos = m.geometry.attributes.position;
-    for (let i = 0; i < pos.count; i += step) {
-      v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
-      out.push(v.x, v.y, v.z);
-    }
-  }
-  return out;
-}
-
-function planFor(group) {
-  if (group.userData.moverPlan !== undefined) return group.userData.moverPlan;
-  const objects = group.children.filter((c) => c.isMesh || c.children.length);
-  let plan = null;
-  if (objects.length >= 3) {
-    const hit = classifyMover(objects.map((o) => ({ name: o.name, points: partPoints(o) })));
-    if (hit.kind !== 'none') plan = { ...hit, objects };
-  }
-  group.userData.moverPlan = plan;
-  return plan;
-}
-
-function isDescendant(anc, node) {
-  let p = node.parent;
-  while (p) {
-    if (p === anc) return true;
-    p = p.parent;
-  }
-  return false;
-}
-
-function scanMovers(scene) {
-  scene.updateWorldMatrix(true, true);
-  const raw = [];
-  scene.traverse((o) => {
-    if (o === scene || o.isMesh) return;
-    const plan = planFor(o);
-    if (plan) raw.push({ obj: o, kind: plan.kind, plan });
-  });
-  return raw.filter((a) => !raw.some((b) => b !== a && isDescendant(a.obj, b.obj)));
 }
 
 function localDir(obj, worldDir) {

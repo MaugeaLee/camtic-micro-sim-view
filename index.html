@@ -18,6 +18,7 @@
     <button type="button" id="btnAdmin">Admin</button>
   </div>
   <div class="controls">
+    <select id="scenarioSel" title="시나리오 (가정값)"></select>
     <button id="btnPlay">재생</button>
     <div id="speedSeg" class="seg"></div>
     <span id="clock">00:00:00</span>
@@ -27,6 +28,11 @@
 <aside class="panel left">
   <h2>셀</h2>
   <ul id="cellList" class="cells"></ul>
+  <div id="fleetBox" class="fleetbox" hidden>
+    <h2>공급 AMR <small id="fleetSum"></small></h2>
+    <ul id="amrList" class="amrs"></ul>
+    <p class="hint">셀·AMR 클릭 = 카메라 포커스 · Esc 해제. 사이클·대수·고장 시각은 가정값</p>
+  </div>
   <div id="buildBar" class="buildbar" hidden>
     <h2>짓기</h2>
     <p class="hint">좌클릭 집기·놓기 · 우클릭 회전 · R 90°</p>
