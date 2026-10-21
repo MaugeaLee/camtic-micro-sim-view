@@ -21,7 +21,9 @@ button:hover, button.on { border-color: var(--accent); color: #fff; }
 #viewport canvas { display: block; width: 100%; height: 100%; }
 
 .topbar { position: fixed; top: 0; left: 0; right: 0; height: var(--top); z-index: 10; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; background: var(--panel); border-bottom: 1px solid var(--line); backdrop-filter: blur(8px); }
+.brand-row { display: flex; align-items: center; gap: 10px; }
 .brand { font-weight: 600; letter-spacing: 0.02em; }
+#btnAdmin.on { border-color: var(--accent); color: #fff; background: rgba(79, 179, 255, 0.18); }
 .controls { display: flex; align-items: center; gap: 10px; }
 .seg { display: flex; gap: 2px; }
 #clock { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 64px; text-align: right; }
@@ -44,5 +46,10 @@ button:hover, button.on { border-color: var(--accent); color: #fff; }
 .log time { color: var(--muted); margin-right: 8px; font-variant-numeric: tabular-nums; }
 .log .lv-warn { color: var(--warn); }
 .log .lv-error { color: var(--bad); }
+
+.buildbar { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
+.buildbar .hint { margin: 0 0 8px; color: var(--muted); font-size: 12px; }
+.build-actions { display: flex; gap: 6px; margin-top: 8px; }
+.build-actions button { flex: 1; }
 
 .bottombar { position: fixed; left: 0; right: 0; bottom: 0; height: var(--bottom); z-index: 10; display: flex; align-items: center; padding: 0 16px; color: var(--muted); background: var(--panel); border-top: 1px solid var(--line); }

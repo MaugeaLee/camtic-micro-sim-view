@@ -11,6 +11,8 @@
   #viewport { top: 40px; left: 312px; }
   #note { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
   #btnPick { margin-left: 8px; }
+  #btnPlay.on { border-color: var(--ok); color: #fff; }
+  #clock { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 52px; }
   #viewport.pick { cursor: crosshair; }
   .preview-tree { top: 52px; bottom: 12px; width: 288px; }
   .preview-tree h2 em { font-style: normal; font-weight: 400; margin-left: 8px; }
@@ -32,6 +34,10 @@
 <div class="preview-bar">
   <b>Asset Viewer</b>
   <select id="assetPick"></select>
+  <button id="btnPlay" type="button" title="자동 추정한 관절을 코드 포즈로 움직인다">재생</button>
+  <span id="speedSeg" class="seg"></span>
+  <select id="driveTarget" title="포커스(재생은 검출된 로봇 전부)"></select>
+  <span id="clock">00:00</span>
   <span id="note">조회 중…</span>
   <button id="btnPick" type="button" title="뷰에서 호버·클릭으로 트리를 찾는다">클릭 모드</button>
 </div>

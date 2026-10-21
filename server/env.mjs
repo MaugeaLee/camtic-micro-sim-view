@@ -41,7 +41,22 @@ const slash = (p, trail = false) => {
   return s;
 };
 
-// 키 없음 → .env.example 과 같은 값. 배포 값은 파일·환경변수가 우선.
+const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+export const VERSION = typeof pkg.version === 'string' && pkg.version ? pkg.version : '0.0.0';
+
+export const API_PREFIX = '/api';
+
+export const API = Object.freeze({
+  status: '/api/status',
+  assets: '/api/assets',
+  config: '/api/config',
+  assetViewer: '/api/asset-viewer',
+  docs: '/api/docs',
+  openapi: '/api/openapi.json',
+  layout: '/api/layout',
+});
+
+// 호스트·포트·에셋만 env. API 경로는 위 상수. 배포 값은 파일·환경변수가 우선.
 export function readConfig(env = process.env) {
   const portRaw = env.PORT;
   const port = portRaw === undefined || portRaw === '' ? 8790 : Number(portRaw);
@@ -49,17 +64,12 @@ export function readConfig(env = process.env) {
     host: env.HOST || '127.0.0.1',
     port: Number.isFinite(port) ? port : 8790,
     name: env.APP_NAME || 'micro-cell-viewer',
+    version: VERSION,
     assetDir: env.ASSET_DIR || 'src/render_asset',
     assetUrl: slash(env.ASSET_URL || '/assets', true),
-    apiPrefix: slash(env.API_PREFIX || '/api'),
-    api: {
-      status: slash(env.API_STATUS || '/api/status'),
-      assets: slash(env.API_ASSETS || '/api/assets'),
-      config: slash(env.API_CONFIG || '/api/config'),
-      assetViewer: slash(env.API_ASSET_VIEWER || '/api/asset-viewer'),
-      docs: slash(env.API_DOCS || '/api/docs'),
-      openapi: slash(env.API_OPENAPI || '/api/openapi.json'),
-    },
+    layoutFile: env.LAYOUT_FILE || 'data/layout.json',
+    apiPrefix: API_PREFIX,
+    api: { ...API },
   };
 }
 
@@ -69,7 +79,7 @@ export function mergeConfig(overrides = {}, env = process.env) {
 }
 
 export function publicConfig(cfg) {
-  return { name: cfg.name, host: cfg.host, port: cfg.port, assetUrl: cfg.assetUrl, api: { ...cfg.api } };
+  return { name: cfg.name, version: cfg.version, host: cfg.host, port: cfg.port, assetUrl: cfg.assetUrl, api: { ...cfg.api } };
 }
 
 export function resolveAssetDir(cfg, root = ROOT) {

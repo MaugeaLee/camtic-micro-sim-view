@@ -22,12 +22,22 @@ export class CellView {
     }
   }
 
-  // 로드된 에셋 루트를 셀 그룹에 붙인다.
+  // 로드된 에셋 루트를 셀 그룹에 붙인다. 자리는 그룹에 두고, 메시는 바닥(y=0)·XZ 중심에 앉힌다.
   attach(id, object) {
     const g = this.groups.get(id);
     if (!g) throw new Error(`없는 셀 그룹: ${id}`);
     g.clear();
+    seatOnFloor(object);
     g.add(object);
+  }
+
+  applyLayout(doc) {
+    for (const [id, pose] of Object.entries(doc.cells)) {
+      const g = this.groups.get(id);
+      if (!g) continue;
+      g.position.set(pose.x, 0, pose.z);
+      g.rotation.y = (pose.rotY * Math.PI) / 180;
+    }
   }
 
   update(dt, state, events) {
@@ -42,4 +52,15 @@ export class CellView {
     for (const g of this.groups.values()) this.root.remove(g);
     this.groups.clear();
   }
+}
+
+// GLB 원점이 바닥이 아니다(PRESS/SCREW는 y≈5, SORT는 y≈20). 박스 밑면을 y=0, 중심을 xz=0에 둔다.
+function seatOnFloor(object) {
+  object.updateWorldMatrix(true, true);
+  const box = new THREE.Box3().setFromObject(object);
+  if (box.isEmpty()) return;
+  const c = box.getCenter(new THREE.Vector3());
+  object.position.x += -c.x;
+  object.position.z += -c.z;
+  object.position.y += -box.min.y;
 }

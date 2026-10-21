@@ -1,5 +1,8 @@
-// app-server: 화이트리스트, 경로 탈출, .env 엔드포인트, index 주입.
-import { startServer, listAssets } from '../server/app-server.mjs';
+// app-server: 화이트리스트, 경로 탈출, API 경로, index 주입.
+import fs from 'node:fs';
+import path from 'node:path';
+import { startServer, listAssets, ROOT } from '../server/app-server.mjs';
+import { defaultLayout } from '../js/sim/layout.js';
 
 let pass = 0, fail = 0;
 const check = (name, ok, info = '') => { ok ? pass++ : fail++; console.log(`  ${ok ? 'PASS' : 'FAIL'} ${name}${info ? ' — ' + info : ''}`); };
@@ -25,7 +28,7 @@ try {
   check('assets = 디스크 목록', JSON.stringify(assets) === JSON.stringify(listAssets()), assets.map((a) => a.key).join(','));
 
   const conf = await (await get(cfg.api.config)).json();
-  check('config 공개 필드', conf.host && conf.assetUrl && !('assetDir' in conf));
+  check('config 공개 필드', conf.host && conf.assetUrl && conf.version && !('assetDir' in conf));
 
   if (assets.length) {
     const glb = await get(`${cfg.assetUrl}${encodeURIComponent(assets[0].file)}`, { method: 'HEAD' });
@@ -35,6 +38,12 @@ try {
   check('경로 탈출 차단', (await get('/js/%2e%2e/server/app-server.mjs')).status === 404);
   check('화이트리스트 밖 404', (await get('/server.mjs')).status === 404 && (await get('/context/facts.json')).status === 404);
   check('API 쓰기 거부', (await get(cfg.api.status, { method: 'POST' })).status === 405);
+  check('layout POST 거부', (await get(cfg.api.layout, { method: 'POST' })).status === 405);
+
+  const lay = await (await get(cfg.api.layout)).json();
+  check('layout GET', lay.version === 1 && lay.cells.PRESS && lay.cells.SCREW && lay.cells.SORT);
+  const dl = await get(`${cfg.api.layout}?download=1`);
+  check('layout 내려받기 헤더', dl.status === 200 && (dl.headers.get('content-disposition') || '').includes('layout.json'));
   check('없는 API 404', (await get(`${cfg.apiPrefix}/nope`)).status === 404);
 
   const av = await (await get(`${cfg.api.assetViewer}?format=json`)).json();
@@ -72,6 +81,40 @@ try {
   check('커스텀 swagger', (await fetch(`${u}/v1/docs`)).status === 200 && (await fetch(`${u}/api/docs`)).status === 404);
 } finally {
   custom.server.close();
+}
+
+const rel = `tests/_tmp_layout_${process.pid}.json`;
+const tmp = path.join(ROOT, rel);
+const moved = await startServer({ port: 0, host: '127.0.0.1', layoutFile: rel });
+try {
+  const u = `http://127.0.0.1:${moved.port}`;
+  const empty = await (await fetch(`${u}${moved.cfg.api.layout}`)).json();
+  check('없는 파일은 기본 자리', empty.cells.PRESS.x === defaultLayout().cells.PRESS.x);
+  const next = { ...defaultLayout(), cells: { ...defaultLayout().cells, PRESS: { x: -14, z: 6, rotY: 0 } } };
+  const put = await fetch(`${u}${moved.cfg.api.layout}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(next) });
+  const saved = await put.json();
+  check('layout PUT', put.status === 200 && saved.cells.PRESS.z === 6);
+  const again = await (await fetch(`${u}${moved.cfg.api.layout}`)).json();
+  check('PUT 후 GET', again.cells.PRESS.z === 6 && again.rev > 0);
+  const bad = await fetch(`${u}${moved.cfg.api.layout}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: '{"version":1}' });
+  check('잘못된 PUT 거부', bad.status === 400);
+} finally {
+  moved.server.close();
+  try { fs.unlinkSync(tmp); } catch { /* 없으면 무시 */ }
+}
+
+const locked = await startServer({ port: 0, host: '127.0.0.1', layoutFile: 'src/layout.default.json' });
+try {
+  const u = `http://127.0.0.1:${locked.port}`;
+  const got = await (await fetch(`${u}${locked.cfg.api.layout}`)).json();
+  check('기본 파일 GET', got.cells.SORT.x === 14);
+  const putDef = await fetch(`${u}${locked.cfg.api.layout}`, {
+    method: 'PUT', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(defaultLayout()),
+  });
+  check('기본 파일 PUT 거부', putDef.status === 400);
+} finally {
+  locked.server.close();
 }
 
 console.log(`  ${pass} pass, ${fail} fail`);

@@ -17,7 +17,7 @@ OCS 산정·견적·존 예산은 여기가 아니다. 그건 [`../context/`](..
 | `07-kpi-learning-fac.md` | KPI 손실, VLA, AIOS, FAC, 보안 |
 | `08-related-systems.md` | CAMTIC AAS viewer · collector · middleware |
 | `09-limits-and-join.md` | 한계·미구현·시뮬↔현장 조인 방법. 확정인 것처럼 쓰지 말 것 |
-| `10-viewer.md` | **이 레포**의 렌더 뷰어 골격. 레이어·루프·서버·테스트 |
+| `10-viewer.md` | **이 레포**의 렌더 뷰어. 레이어·루프·서버·테스트·asset-viewer 관절 추정 규칙 |
 
 원문: https://theuniversepark.github.io/micro-assembly/
 생성 저장소: https://github.com/theuniversepark/micro-assembly
