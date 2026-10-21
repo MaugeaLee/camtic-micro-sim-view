@@ -2,7 +2,7 @@
 
 총괄5-세부1 로컬 OCS·시뮬레이션 Cell 작업 공간 + 셀 GLB 렌더 뷰어.
 
-에이전트용 도메인 콘텍스트는 [`context/`](context/README.md). 뷰어 아키텍처는 [`docx/10-viewer.md`](docx/10-viewer.md). 원문: [로컬 OCS 구성](https://theuniversepark.github.io/micro-cell/).
+에이전트용 도메인 콘텍스트는 [`context/`](context/README.md). 뷰어 아키텍처는 [`docx/10-viewer.md`](docx/10-viewer.md). 기능 체크리스트는 [`기능개발목표.md`](기능개발목표.md). 원문: [로컬 OCS 구성](https://theuniversepark.github.io/micro-cell/).
 
 ---
 

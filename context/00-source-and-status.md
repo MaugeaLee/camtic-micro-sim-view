@@ -11,13 +11,15 @@
 | `ocs_sim_fms.html` | `ocs_sim_fms.docx` | 유연제조 심의용 Cell | 같은 견적 1015-1 |
 | `ocs_sim_adaptive.html` | `ocs_sim_adaptive.docx` | 적응가공 심의용 Cell | 같은 견적 1015-2 |
 | `ocs_sim_qms.html` | `ocs_sim_qms.docx` | AI정밀검사 심의용 Cell | 같은 견적 1015-3 |
+| (페이지 없음) | `docx/1차년도 정밀조립Zone 견적서 항목 vs 도입장비 매핑.pdf` | 1차년도 도입장비 ↔ STEP | 견적서 원문 2~3쪽. 지식은 `08-precision-y1-equip.md` |
 
 인덱스: https://theuniversepark.github.io/micro-cell/
 
-## 두 계열을 섞지 말 것
+## 세 계열을 섞지 말 것
 
-1. **정밀조립(A-3) 자체 산정** — 캠틱이 HW/SW를 품목별로 짠 설계. 이지로보틱스 턴키 견적 대상이 아님. DMWorks는 1좌석 단가 적용(156,781천원)만 있음.
-2. **OCS 시뮬레이션 Cell 3존 견적** — 이지로보틱스 10/15 턴키. 항목1~6 총액. 로컬 HW 하위 품목은 “별도 협의”. 토폴로지의 스위치 대수 등은 정밀조립 예시를 **가정으로 빌려 그린 것**.
+1. **정밀조립(A-3) OCS Cell 자체 산정** — 캠틱이 HW/SW를 품목별로 짠 **완성 5셀** 설계. 이지로보틱스 턴키 견적 대상이 아님. DMWorks는 1좌석 단가 적용(156,781천원)만 있음. → `04-precision-ocs.md`
+2. **OCS 시뮬레이션 Cell 3존 견적** — 이지로보틱스 10/15 턴키. 항목1~6 총액. 로컬 HW 하위 품목은 “별도 협의”. 토폴로지의 스위치 대수 등은 정밀조립 예시를 **가정으로 빌려 그린 것**. → `05-dmworks-quotes.md`
+3. **1차년도 정밀조립 도입장비** — 스크류·압입·분류 3구역 현장 장비 견적(S/P/K/A/E…). 뷰어 GLB `SCREW` `PRESS` `SORT`가 이쪽이다. 5셀 대수·OCS 랙 BOM과 맞추지 말 것. → `08-precision-y1-equip.md`. 원 PDF는 `docx/`에 두고 지식은 여기.
 
 ## 가격 등급 (정밀조립 표)
 

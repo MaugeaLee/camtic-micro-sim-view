@@ -17,7 +17,10 @@ OCS 산정·견적·존 예산은 여기가 아니다. 그건 [`../context/`](..
 | `07-kpi-learning-fac.md` | KPI 손실, VLA, AIOS, FAC, 보안 |
 | `08-related-systems.md` | CAMTIC AAS viewer · collector · middleware |
 | `09-limits-and-join.md` | 한계·미구현·시뮬↔현장 조인 방법. 확정인 것처럼 쓰지 말 것 |
-| `10-viewer.md` | **이 레포**의 렌더 뷰어. 레이어·루프·서버·테스트·asset-viewer 관절 추정 규칙 |
+| `10-viewer.md` | **이 레포**의 렌더 뷰어. 레이어·루프·서버·테스트·asset-viewer 운동 분류 규칙 |
+| [`../기능개발목표.md`](../기능개발목표.md) | 뷰어 기능 체크리스트. 끝나면 체크, 목록 밖은 `+추가` |
+
+1차년도 정밀조립 견적 항목 ↔ GLB 매핑 지식은 [`../context/08-precision-y1-equip.md`](../context/08-precision-y1-equip.md). 원 PDF(`1차년도 정밀조립Zone 견적서 항목 vs 도입장비 매핑.pdf`)는 여기 두고 본문은 `context/`만 갱신한다.
 
 원문: https://theuniversepark.github.io/micro-assembly/
 생성 저장소: https://github.com/theuniversepark/micro-assembly

@@ -21,3 +21,18 @@ const AMP = Object.freeze([0.35, 0.25, 0.3, 0.3, 0.6, 0.5]);
 export function jointWave(t, n, { rate = 1.25, phase = 0 } = {}) {
   return Array.from({ length: n }, (_, i) => Math.sin((t + phase) * rate * (1 - i * 0.08) + i * 0.9) * (AMP[i] ?? 0.3));
 }
+
+export function travelWave(t, { amp = 0.35, rate = 0.7, phase = 0 } = {}) {
+  return Math.sin((t + phase) * rate) * amp;
+}
+
+export function spinWave(t, { rate = 2.4, phase = 0 } = {}) {
+  return (t + phase) * rate;
+}
+
+export function gantryWave(t, { ampX = 0.28, ampZ = 0.08, rate = 0.7, phase = 0 } = {}) {
+  return {
+    x: travelWave(t, { amp: ampX, rate, phase }),
+    z: travelWave(t, { amp: ampZ, rate: rate * 0.85, phase: phase + 0.9 }),
+  };
+}

@@ -6,7 +6,7 @@ alwaysApply: false
 
 # 렌더 뷰어
 
-구조는 `docx/10-viewer.md`. 먼저 읽는다.
+구조는 `docx/10-viewer.md`. 진행 체크는 `기능개발목표.md`. 먼저 읽는다. 기능을 끝내면 체크리스트를 같은 턴에 갱신한다.
 
 - 프레임워크·번들러 없음. vanilla ES module + import map + `vendor/three` r186. npm 의존성을 늘리지 않는다.
 - `js/main.js`만 레이어를 잇는다. `sim/` `data/` `core/`는 three·DOM import 금지(Node 테스트 대상).

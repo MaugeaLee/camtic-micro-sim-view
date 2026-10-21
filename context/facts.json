@@ -66,6 +66,41 @@
     "camera_mbps_each": 22.4,
     "edge": { "thor_per_zone": 55, "orin_per_zone": 20 }
   },
+  "precision_y1_equip": {
+    "source_pdf": "docx/1차년도 정밀조립Zone 견적서 항목 vs 도입장비 매핑.pdf",
+    "status": "매핑 검토본",
+    "note": "1차년도 현장 3구역. 완성 5셀 OCS(precision_a3)와 별도",
+    "zones": {
+      "SCREW": "스크류 체결",
+      "PRESS": "압입 체결",
+      "SORT": "분류"
+    },
+    "counts": {
+      "cobot": 11,
+      "dual_arm": 1,
+      "robots": 12,
+      "amr_main_jig": 2,
+      "amr_supply": 2,
+      "cameras_front": 12,
+      "cameras_axis": 13,
+      "plc_io": 12,
+      "edge_thor_class": 12
+    },
+    "amounts_cheonwon": {
+      "screw": 350200,
+      "press": 323000,
+      "sort": 407700,
+      "common_hw": 1035700,
+      "hw_subtotal": 2116600,
+      "app_sw": 334854.545,
+      "integration": 41400,
+      "install": 38800,
+      "training": 13800,
+      "total": 2545454.545
+    },
+    "total_won": 2545454545,
+    "missing_codes": ["A01", "A02", "A04", "A15"]
+  },
   "quotes": {
     "fms_a14": {
       "id": "견26CAMTIC-DMWorks-1015-1",

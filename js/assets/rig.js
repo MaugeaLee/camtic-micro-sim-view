@@ -106,6 +106,10 @@ function rim(pts, c, axis, t) {
   return { center: c, axis: canonical(axis), radius: rmax, length, frac: outer / n };
 }
 
+export function cylinderAxis(pts, t = TUNE) {
+  return roundAxis(pts, { ...t, rodRatio: 1e9 });
+}
+
 export function roundAxis(pts, t = TUNE) {
   if (!pts || pts.length < 24) return null;
   const { c, cov } = moments(pts);

@@ -13,8 +13,10 @@
 
 뷰어 코드(`index.html` `js/` `server/` `tests/`): `docx/10-viewer.md`. `npm start` → `.env`의 HOST:PORT, `npm test`.
 
+기능 진행은 [`기능개발목표.md`](기능개발목표.md). 끝나면 `[ ]`→`[x]`. 목록에 없으면 `+추가` 후 체크. 룰: `.cursor/rules/feature-goals.mdc` · `.rules/feature-goals.md`.
+
 - 상태: 설계 추정본. 미확정은 `context/07-open-issues.md` · `docx/09-limits-and-join.md` — 확정처럼 쓰지 않는다.
 - 금액: 천원, VAT 별도. 수치는 `context/facts.json`과 맞춘다.
 - 역할: OCS=수집·감독·재계획. 실시간 제어=셀 PLC. 학습 DT=Isaac. 검증 DT=DMWorks. 시뮬의 오케스트레이터는 같은 역할의 JS 모듈이지 하드웨어 OCS가 아니다.
-- 정밀조립 A-3 자체 산정과 이지로보틱스 10/15 턴키 3존을 섞지 않는다. 시뮬 셀 ID(SORT…)와 A-3-n도 맞추지 않는다.
+- 정밀조립 A-3 자체 산정(완성 5셀)과 1차년도 도입장비(SCREW/PRESS/SORT)와 이지로보틱스 10/15 턴키 3존을 섞지 않는다. 시뮬 셀 ID(SORT…)와 A-3-n도 맞추지 않는다. 1차년도 품목↔GLB는 `context/08-precision-y1-equip.md`.
 - 제출·발표 문구에는 업체·모델명을 쓰지 않는다. 일반 명칭과 `제어기 n종`을 쓴다.

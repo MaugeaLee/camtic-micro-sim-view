@@ -43,7 +43,8 @@ index.html  import map → js/main.js
 | render | `place.js` | 짓기 제스처(레이캐스트·고스트). 판정 함수는 main이 넘김 | 레이아웃 파일 저장 |
 | assets | `loader.js` | `assets/<key>.glb` 로드·캐시·복제 | 배치 결정 |
 | assets | `rig.js` | CAD 그룹 → 관절 추정. 점군·접촉만. 이름 표 없음 | three·DOM, 부품 수동 매핑 |
-| assets | `anim.js` | 관절각 `sin(t)` 파형. 셀마다 카메라 기본만 둠(PRESS `R8` · SCREW `R1` · SORT `Dual_arm_L`) | 축·원점 결정 |
+| assets | `movers.js` | 팔·AMR·롤러·직교·레일 분류. 형상만. `inferRig`를 레일/바퀴/직교에 재사용하지 않음 | three·DOM, 종류 섞기 |
+| assets | `anim.js` | 관절각 `jointWave` · 이동 `travelWave` · 자전 `spinWave` · 직교 `gantryWave`. 셀마다 카메라 기본만 둠(PRESS `R8` · SCREW `R1` · SORT `Dual_arm_L`) | 축·원점 결정 |
 | assets | `preview.js` | `/api/asset-viewer` 테스트 뷰포트. 추정 결과를 피벗으로 조립 | 메인 시뮬 상태 |
 | ui | `ui.js` | 0.25초마다 상태를 읽어 그림. 입력은 콜백 | 상태 직접 변경 |
 
@@ -69,7 +70,7 @@ frame():  rdt = min(Δ, 0.1)
 ## 좌표·에셋
 
 - 1 = 1 m, Y-up. glTF 규약 그대로.
-- 셀 id = STEP 최상위 조립품(`PRESS` `SCREW` `SORT`). 시뮬 셀 ID(SORT…)·OCS A-3-n 과 맞추지 않는다.
+- 셀 id = STEP 최상위 조립품(`PRESS` `SCREW` `SORT`). 시뮬 셀 ID(SORT…)·OCS A-3-n 과 맞추지 않는다. 견적 코드(S/P/K/A)↔그룹은 `context/08-precision-y1-equip.md`. `PRESS`는 압입 체결구역이다.
 - GLB 디스크·URL은 `.env`의 `ASSET_DIR` · `ASSET_URL`. 쓰는 자리는 `LAYOUT_FILE`(기본 `data/layout.json`). 없거나 깨지면 `src/layout.default.json`만 읽는다. PUT은 `LAYOUT_FILE`에만 쓰고 기본 파일은 덮지 않는다. 메인은 GET `/api/layout`만 읽고, Admin 모드에서 집기·놓기한다. 보기 화면은 2초마다 GET해서 따라간다.
 - 필드(`field-def.js`): 48 × 30 m, 벽 높이 8 m, 뒷벽·좌우 벽, 앞면 열림, 앞쪽 통로 1줄. **실측 아님** — 셀 3개가 통로와 함께 들어갈 크기로 잡은 가정이다. 바닥 텍스처는 캔버스로 생성(고정 시드, 한 장 4 m · 격자 1 m)하고 이미지 파일은 없다.
 
@@ -84,7 +85,7 @@ frame():  rdt = min(Δ, 0.1)
 | `/api/status` | 이름·시각·GLB 키 · 공개 env |
 | `/api/assets` | GLB 파일·크기 |
 | `/api/config` | 이름·버전·호스트·포트·URL (디스크 경로 없음) |
-| `/api/asset-viewer` | Three.js 가 읽는 GLB/GLTF 조회. 브라우저면 테스트 뷰포트(`preview.js`), `?format=json` 이면 목록. 재생은 아래 관절 추정. `?key=` `?target=` `?play=0` |
+| `/api/asset-viewer` | Three.js 가 읽는 GLB/GLTF 조회. 브라우저면 테스트 뷰포트(`preview.js`), `?format=json` 이면 목록. 재생은 아래 운동 분류. `?key=` `?target=` `?play=0` |
 | `/api/docs` | Swagger UI. OpenAPI 스펙을 읽어 GET 실행 |
 | `/api/openapi.json` | OpenAPI 3 JSON |
 | `/api/layout` | 셀 자리 JSON. GET은 `LAYOUT_FILE` → 기본 파일 순. `?download=1` 이면 첨부. PUT은 127.0.0.1만 · `LAYOUT_FILE`에만 기록 |
@@ -138,11 +139,30 @@ frame():  rdt = min(Δ, 0.1)
 
 | 맞음 | 아님 |
 |---|---|
-| PRESS R6–R10, SCREW R1–R5·R11, SORT Dual_arm_L/R — 각 5관절 직렬 | 경계 레일, 롤러 컨베이어, 실러 펌프, 트랜스퍼·패드 |
+| PRESS R6–R10, SCREW R1–R5·R11, SORT Dual_arm_L/R — 각 5관절 직렬 | 경계 레일, 롤러 컨베이어, 실러 펌프 |
+| 직교 2축(S04/P04/K02) — 문형+Z기둥+패드 → `gantry` | 로봇 주행레일·양팔 슬라이드(`track`) |
 | R8: 선회 Y → 어깨 X → 팔꿈치 X → 손목 X → 툴 Y | 6축째 손목. 이 CAD에 해당 원통이 없음 |
 | `tests/rig.mjs` 합성 팔·컨베이어·패드 | 회전 부호·리밋·실측 원점. 하우징 중심이라 mm 단위 어긋날 수 있음 |
 
 임계값을 바꾸면 `tests/rig.mjs`와 위 세 GLB(로봇만 잡히고 설비는 안 잡히는지)를 같이 본다.
+
+## 운동 종류 (`js/assets/movers.js`)
+
+팔 추정(`inferRig`)을 레일·AMR·롤러에 다시 쓰지 않는다. 짧은 원통은 관절 하우징, 가로 짧은 원통 묶음은 바퀴, 가로 긴 원통은 롤러, 가로로 긴 가이드는 레일이다. 한 규칙으로 섞으면 패드·레일·바퀴가 가짜 팔 관절이 된다.
+
+`classifyMover` 순서: 팔 → 바퀴 → 롤러 → 직교 → 레일. 조상 그룹이 자식과 같이 잡히면 자식만 남긴다. 부품 이름표·종류별 JSON은 쓰지 않는다.
+
+| kind | 형상 | 동작 |
+|---|---|---|
+| `arm` | `inferRig().robot` | 내부 메시를 `J1`… 피벗 아래로. `jointWave` |
+| `amr` | 가로 짧은 원통 3–8개, 반지름·높이 비슷. 큰 지그 상판+다리는 제외 | 차체 `travelWave`. 바퀴는 이동/반지름으로 자전 |
+| `rollers` | 가로 긴 원통 4개 이상 | 제자리 `spinWave`. 베드 자체는 고정 |
+| `gantry` | 문형 기둥 3–6 + 문 위 Z기둥 + 흡착 공구. Cross가 긴 Side 레일을 탐 | `gantryWave`: 캐리지(Cross+헤드)는 레일 방향, 흡착만 수직. Side·프레임 고정 |
+| `track` | 가로 긴 AABB 가이드 2–4개, 길이 비슷, 나란히(경로 조각 제외) | 레일은 고정. 레일 위 팔 그룹을 축으로 슬라이드 |
+
+재생은 검출된 대상 전부. `BENCH.*.name`·드롭다운은 카메라 포커스다. 메인 시뮬 뷰어에는 아직 안 붙인다.
+
+합성 점군은 `tests/movers.mjs`. 실제 GLB에서 팔 15대가 그대로인지, 직교 2축이 `gantry`인지, MAIN JIG 도킹이 AMR로 안 움직이는지, 레일/롤러가 팔로 안 잡히는지를 같이 본다.
 
 ## 테스트
 
@@ -161,12 +181,12 @@ frame():  rdt = min(Δ, 0.1)
 
 ## 단계 (제안 — 일정·게이트 미확정)
 
-meta-factory의 P1/S1(엔진·3D 트윈)을 뷰어 규모로 줄인 것이다. 수치 게이트는 이 레포에서 정한 안이며 확정 아님.
+meta-factory의 P1/S1(엔진·3D 트윈)을 뷰어 규모로 줄인 것이다. 수치 게이트는 이 레포에서 정한 안이며 확정 아님. **체크와 다음 작업은 [`../기능개발목표.md`](../기능개발목표.md).** 기능을 끝내면 그 파일을 갱신한다.
 
 | 단계 | 내용 | 게이트 안 |
 |---|---|---|
 | V0 골격 | 레이어·루프·서버·헤드리스 테스트 · 빈 뷰포트 | `npm test` PASS · 기본/`?assets=1` 부팅 스크린샷 (완료) |
-| V1 배치 | 셀 배치 데이터 · GLB 검사(헤더·노드 루트 = 셀 id) | 셀 3개 로드 · 셀 간 바닥 AABB 겹침 0 |
+| V1 배치 | 셀 배치 데이터 · GLB 검사(헤더·노드 루트 = 셀 id) | 셀 3개 로드 · 셀 간 바닥 AABB 겹침 0 (검사만 남음) |
 | V2 표현 | 상태 색/라벨 · 선택 하이라이트 · 카메라 포커스 | 상태 3종 × 셀 3개 표시 확인 |
 | V3 연결 | 장 A/B/C 중 하나 선택 후 데이터 입력 | 장 선택 결정 후 정함 |
 
