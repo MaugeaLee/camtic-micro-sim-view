@@ -9,10 +9,14 @@ const fmtTime = (t) => {
 };
 
 export class UI {
-  constructor({ onPlay, onSpeed, onSelect } = {}) {
-    this.cb = { onPlay, onSpeed, onSelect };
+  constructor({ onPlay, onSpeed, onSelect, onPlace, onDownload, onImport, onAdmin } = {}) {
+    this.cb = { onPlay, onSpeed, onSelect, onPlace, onDownload, onImport, onAdmin };
     this.lastLog = 0;
-    this.el = { play: $('btnPlay'), speed: $('speedSeg'), clock: $('clock'), cells: $('cellList'), log: $('logList'), status: $('statusLine') };
+    this.el = {
+      play: $('btnPlay'), speed: $('speedSeg'), clock: $('clock'), cells: $('cellList'), log: $('logList'),
+      status: $('statusLine'), build: $('buildBar'), place: $('placeSeg'),
+      dl: $('btnLayoutDl'), up: $('btnLayoutUp'), file: $('layoutFile'), admin: $('btnAdmin'),
+    };
 
     this.el.play.addEventListener('click', () => this.cb.onPlay?.());
     this.el.speed.innerHTML = SPEEDS.map((x) => `<button data-speed="${x}">${x}×</button>`).join('');
@@ -24,6 +28,25 @@ export class UI {
       const id = e.target.closest('[data-cell]')?.dataset.cell;
       if (id) this.cb.onSelect?.(id);
     });
+    this.el.place?.addEventListener('click', (e) => {
+      const id = e.target.dataset?.place;
+      if (id) this.cb.onPlace?.(id);
+    });
+    this.el.dl?.addEventListener('click', () => this.cb.onDownload?.());
+    this.el.up?.addEventListener('click', () => this.el.file?.click());
+    this.el.file?.addEventListener('change', () => {
+      const f = this.el.file.files?.[0];
+      this.el.file.value = '';
+      if (f) this.cb.onImport?.(f);
+    });
+    this.el.admin?.addEventListener('click', () => this.cb.onAdmin?.());
+  }
+
+  setAdmin(on, cells = []) {
+    this.el.admin?.classList.toggle('on', on);
+    if (!this.el.build) return;
+    this.el.build.hidden = !on;
+    if (on) this.el.place.innerHTML = cells.map((c) => `<button type="button" data-place="${c.id}">${c.id}</button>`).join('');
   }
 
   reset(state) {

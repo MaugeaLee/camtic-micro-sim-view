@@ -23,6 +23,7 @@
 | FMS | 유연제조(Flexible Manufacturing) 존 |
 | QMS | AI 정밀검사 존 |
 | AMR / AMMR | 이동로봇 / 양팔 이동로봇 |
+| SCREW / PRESS / SORT | 1차년도 정밀조립 STEP 구역. 스크류 체결 / 압입 체결 / 분류. A-3-n 아님 |
 | PTP | IEEE 1588 / 802.1AS 시간동기. 로봇 100Hz·F/T 1kHz·영상 정합에 필수 |
 | TSN | Time-Sensitive Networking (802.1AS, Qbv) |
 | AMC | 유지보수. 계상은 연 18% × 4년. 견적서 문구는 5년 |

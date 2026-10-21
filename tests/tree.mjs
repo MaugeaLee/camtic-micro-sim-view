@@ -29,7 +29,6 @@ check('findObject', findObject(scene, '0.1.0').name === 'Post_002');
 check('objectToId', objectToId(scene, scene.children[1].children[1]) === '0.1.1');
 check('없는 오브젝트', objectToId(scene, { name: 'x' }) === null);
 check('ancestorIds', ancestorIds('0.1.1').join() === '0,0.1,0.1.1');
-
 const html = renderTreeHtml(tree);
 check('HTML 이스케이프', html.includes('&lt;rail&gt;') && !html.includes('<rail>'));
 check('루트 펼침', html.startsWith('<details open>'));

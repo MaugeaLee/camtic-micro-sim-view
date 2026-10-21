@@ -1,4 +1,4 @@
-// OpenAPI 3 스펙. 경로는 cfg.api — 코드에 엔드포인트를 박지 않는다.
+// OpenAPI 3 스펙. 경로는 cfg.api (`server/env.mjs` 상수).
 
 function schemaRef(name) {
   return { $ref: `#/components/schemas/${name}` };
@@ -15,14 +15,15 @@ export function buildOpenApi(cfg) {
     openapi: '3.0.3',
     info: {
       title: cfg.name || 'micro-cell-viewer',
-      description: '로컬 뷰어 읽기 전용 API. GET만 받는다. 시뮬은 돌리지 않는다. 디스크 경로(`ASSET_DIR`)는 응답에 없다.',
-      version: '0.1.0',
+      description: '로컬 뷰어 API. 시뮬은 돌리지 않는다. 쓰기는 레이아웃 PUT(루프백)만. 디스크 경로(`ASSET_DIR` `LAYOUT_FILE`)는 응답에 없다.',
+      version: cfg.version,
     },
     servers: [{ url: '/', description: '이 프로세스' }],
     tags: [
       { name: 'api', description: '상태·목록·설정' },
       { name: 'assets', description: '렌더 에셋 조회' },
       { name: 'docs', description: '이 스펙과 Swagger UI' },
+      { name: 'layout', description: '셀 자리 JSON. GET은 공개, PUT은 127.0.0.1만' },
     ],
     paths: {
       [api.status]: {
@@ -48,7 +49,7 @@ export function buildOpenApi(cfg) {
       [api.config]: {
         get: {
           tags: ['api'],
-          summary: '호스트·포트·URL (디스크 경로 없음)',
+          summary: '이름·버전·호스트·포트·URL (디스크 경로 없음)',
           operationId: 'getConfig',
           responses: {
             200: jsonRes(schemaRef('PublicConfig'), '브라우저에 주입하는 것과 같은 공개 설정'),
@@ -93,6 +94,34 @@ export function buildOpenApi(cfg) {
           },
         },
       },
+      [api.layout]: {
+        get: {
+          tags: ['layout'],
+          summary: '현재 셀 자리. download=1 이면 파일로 받음',
+          operationId: 'getLayout',
+          parameters: [
+            { name: 'download', in: 'query', schema: { type: 'string', enum: ['1'] }, description: '1 이면 첨부 파일' },
+          ],
+          responses: {
+            200: {
+              description: '레이아웃 JSON',
+              content: { 'application/json': { schema: schemaRef('Layout') } },
+              headers: { 'Content-Disposition': { schema: { type: 'string' } } },
+            },
+          },
+        },
+        put: {
+          tags: ['layout'],
+          summary: 'JSON을 받아 디스크에 기록. 루프백만',
+          operationId: 'putLayout',
+          requestBody: { required: true, content: { 'application/json': { schema: schemaRef('Layout') } } },
+          responses: {
+            200: jsonRes(schemaRef('Layout'), '저장된 레이아웃'),
+            400: jsonRes(schemaRef('Error'), '검증 실패'),
+            403: jsonRes(schemaRef('Error'), '루프백 아님'),
+          },
+        },
+      },
       [api.openapi]: {
         get: {
           tags: ['docs'],
@@ -129,6 +158,7 @@ export function buildOpenApi(cfg) {
           type: 'object',
           properties: {
             name: { type: 'string' },
+            version: { type: 'string' },
             host: { type: 'string' },
             port: { type: 'integer' },
             assetUrl: { type: 'string' },
@@ -142,6 +172,7 @@ export function buildOpenApi(cfg) {
                 assetViewer: { type: 'string' },
                 docs: { type: 'string' },
                 openapi: { type: 'string' },
+                layout: { type: 'string' },
               },
             },
           },
@@ -173,6 +204,33 @@ export function buildOpenApi(cfg) {
             mime: { type: 'string' },
             url: { type: 'string' },
             three: { type: 'boolean' },
+          },
+        },
+        LayoutPose: {
+          type: 'object',
+          required: ['x', 'z', 'rotY'],
+          properties: {
+            x: { type: 'number' },
+            z: { type: 'number' },
+            rotY: { type: 'number', enum: [0, 90, 180, 270] },
+          },
+        },
+        Layout: {
+          type: 'object',
+          required: ['version', 'snap', 'cells'],
+          properties: {
+            version: { type: 'integer', enum: [1] },
+            snap: { type: 'number' },
+            rev: { type: 'number' },
+            cells: {
+              type: 'object',
+              additionalProperties: schemaRef('LayoutPose'),
+              properties: {
+                PRESS: schemaRef('LayoutPose'),
+                SCREW: schemaRef('LayoutPose'),
+                SORT: schemaRef('LayoutPose'),
+              },
+            },
           },
         },
         AssetCatalog: {

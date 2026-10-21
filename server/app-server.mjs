@@ -1,10 +1,11 @@
-// 정적 파일 + 읽기 전용 API. 시뮬은 돌리지 않는다 — 상태는 브라우저가 가진다.
+// 정적 파일 + API. 시뮬은 돌리지 않는다 — 상태는 브라우저가 가진다. 쓰기는 /api/layout PUT(루프백)만.
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { ROOT, mergeConfig, publicConfig, resolveAssetDir } from './env.mjs';
 import { catalog, wantsHtml } from './asset-viewer.mjs';
 import { buildOpenApi } from './openapi.mjs';
+import { loadLayout, saveLayout } from './layout.mjs';
 
 export { ROOT };
 
@@ -66,6 +67,7 @@ export function createHandler(cfg) {
     try { p = decodeURIComponent(url.pathname); } catch { return json(res, 400, { error: 'bad path' }); }
 
     if (isApi(p, cfg)) {
+      if (p === cfg.api.layout) return layoutApi(req, res, url, cfg);
       if (req.method !== 'GET') return json(res, 405, { error: 'method not allowed' });
       if (p === cfg.api.status) {
         return json(res, 200, { name: cfg.name, time: new Date().toISOString(), assets: listAssets(assetDir).map((a) => a.key), env: publicConfig(cfg) });
@@ -92,6 +94,53 @@ export function createHandler(cfg) {
     res.writeHead(200, { 'content-type': MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream' });
     fs.createReadStream(file).pipe(res);
   };
+}
+
+function isLoopback(req) {
+  const a = req.socket.remoteAddress;
+  return a === '127.0.0.1' || a === '::1' || a === '::ffff:127.0.0.1';
+}
+
+function readBody(req, limit = 65536) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let n = 0;
+    req.on('data', (c) => {
+      n += c.length;
+      if (n > limit) {
+        req.destroy();
+        reject(new Error('too large'));
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
+}
+
+async function layoutApi(req, res, url, cfg) {
+  if (req.method === 'GET') {
+    const loaded = loadLayout(cfg);
+    if (!loaded.ok) return json(res, 500, { error: loaded.errors.join(' · ') });
+    const headers = { 'content-type': MIME['.json'], 'cache-control': 'no-store' };
+    if (url.searchParams.get('download') === '1') headers['content-disposition'] = 'attachment; filename="layout.json"';
+    res.writeHead(200, headers);
+    return res.end(JSON.stringify(loaded.doc));
+  }
+  if (req.method === 'PUT') {
+    if (!isLoopback(req)) return json(res, 403, { error: 'local only' });
+    let text;
+    try { text = await readBody(req); }
+    catch { return json(res, 413, { error: 'too large' }); }
+    let raw;
+    try { raw = JSON.parse(text); }
+    catch { return json(res, 400, { error: 'JSON 파싱 실패' }); }
+    const saved = saveLayout(cfg, raw);
+    if (!saved.ok) return json(res, 400, { error: saved.errors.join(' · ') });
+    return json(res, 200, saved.doc);
+  }
+  return json(res, 405, { error: 'method not allowed' });
 }
 
 export function startServer(overrides = {}) {

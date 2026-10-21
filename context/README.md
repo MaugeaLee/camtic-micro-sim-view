@@ -12,6 +12,7 @@
 | `05-dmworks-quotes.md` | 10/15 견적 구조·존별 옵션·계약 쟁점 |
 | `06-sim-cells.md` | FMS·Adaptive·QMS 심의용 Cell 공통/차이 |
 | `07-open-issues.md` | 미확정 항목 — 확정인 것처럼 쓰지 말 것 |
+| `08-precision-y1-equip.md` | 1차년도 정밀조립 도입장비 견적 ↔ STEP/GLB. 5셀 완성 산정(04)과 별도 |
 | `facts.json` | 금액·수량·ID 조회용 |
 
 원문: https://theuniversepark.github.io/micro-cell/

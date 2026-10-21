@@ -2,7 +2,7 @@
 
 총괄5-세부1 로컬 OCS·시뮬레이션 Cell 작업 공간 + 셀 GLB 렌더 뷰어.
 
-에이전트용 도메인 콘텍스트는 [`context/`](context/README.md). 뷰어 아키텍처는 [`docx/10-viewer.md`](docx/10-viewer.md). 원문: [로컬 OCS 구성](https://theuniversepark.github.io/micro-cell/).
+에이전트용 도메인 콘텍스트는 [`context/`](context/README.md). 뷰어 아키텍처는 [`docx/10-viewer.md`](docx/10-viewer.md). 기능 체크리스트는 [`기능개발목표.md`](기능개발목표.md). 원문: [로컬 OCS 구성](https://theuniversepark.github.io/micro-cell/).
 
 ---
 
@@ -29,7 +29,7 @@ node --version
 
 ### 2. 환경 파일
 
-포트·바인드·API 경로는 코드에 두지 않는다. `.env`가 기준이다. git에는 `.env.example`만 올린다.
+포트·바인드·에셋 경로는 `.env`가 기준이다. API 라우트는 `server/env.mjs` 상수다. git에는 `.env.example`만 올린다.
 
 ```powershell
 copy .env.example .env
@@ -42,15 +42,9 @@ copy .env.example .env
 | `APP_NAME` | `micro-cell-viewer` | `/api/status` 이름 |
 | `ASSET_DIR` | `src/render_asset` | GLB 디스크 경로 |
 | `ASSET_URL` | `/assets` | 브라우저가 GLB를 받는 URL |
-| `API_PREFIX` | `/api` | API 접두사 |
-| `API_STATUS` | `/api/status` | 상태 |
-| `API_ASSETS` | `/api/assets` | GLB 목록 |
-| `API_CONFIG` | `/api/config` | 공개 설정(호스트·포트·경로) |
-| `API_ASSET_VIEWER` | `/api/asset-viewer` | 렌더 에셋 조회 + 테스트 뷰포트 |
-| `API_DOCS` | `/api/docs` | Swagger UI |
-| `API_OPENAPI` | `/api/openapi.json` | OpenAPI 3 스펙 |
+| `LAYOUT_FILE` | `data/layout.json` | 쓰는 자리. 없으면 `src/layout.default.json`만 읽는다. PUT은 여기만 씀 |
 
-이미 있는 환경변수가 `.env`보다 우선한다. 브라우저는 `.env`를 읽지 않고, 서버가 `index.html`에 `window.__ENV`로 공개 값만 넣는다.
+이미 있는 환경변수가 `.env`보다 우선한다. 브라우저는 `.env`를 읽지 않고, 서버가 `index.html`에 `window.__ENV`로 공개 값만 넣는다. API 경로는 `/api/status` `/api/assets` `/api/config` `/api/asset-viewer` `/api/layout` `/api/docs` `/api/openapi.json`. PUT은 `/api/layout`만(127.0.0.1).
 
 ### 3. 서버 시작
 
@@ -68,6 +62,9 @@ npm start
 |---|---|
 | http://127.0.0.1:8790/ | 빈 뷰포트 + 셀 목록 (GLB 안 받음) |
 | http://127.0.0.1:8790/?assets=1 | `PRESS` `SCREW` `SORT` GLB 로드 |
+| http://127.0.0.1:8790/?build=1 | Admin 모드로 시작 (타이틀 옆 버튼과 같음) |
+| http://127.0.0.1:8790/api/layout | 셀 자리 JSON |
+| http://127.0.0.1:8790/api/layout?download=1 | 같은 JSON을 파일로 |
 | http://127.0.0.1:8790/api/docs | Swagger UI (엔드포인트 조회·GET 실행) |
 | http://127.0.0.1:8790/api/openapi.json | OpenAPI 3 스펙 |
 | http://127.0.0.1:8790/api/asset-viewer | 테스트 뷰포트 (브라우저) |
@@ -80,7 +77,7 @@ npm start
 __viewer.loadAssets()
 ```
 
-셀 세 개는 아직 원점에 겹친다. 배치는 다음 단계.
+자리는 `.env`의 `LAYOUT_FILE`(기본 `data/layout.json`)이다. 파일이 없으면 `src/layout.default.json`을 읽기만 한다. Admin에서 옮긴 뒤 올리면 `LAYOUT_FILE`에만 쓴다.
 
 ### 5. 확인
 
@@ -88,7 +85,7 @@ __viewer.loadAssets()
 npm test
 ```
 
-서버가 켜진 뒤 상태 URL은 `.env`의 `API_STATUS`다.
+서버가 켜진 뒤 상태 URL은 `/api/status`다.
 
 ```powershell
 curl http://127.0.0.1:8790/api/status
@@ -111,8 +108,10 @@ js/                 브라우저 모듈 (진입 js/main.js)
 vendor/three/       Three r186 (레포에 포함)
 .env.example        배포용 키 목록 (복사해서 .env)
 server.mjs          npm start
-server/             정적 화이트리스트 + .env 엔드포인트
+server/             정적 화이트리스트 + API
 src/render_asset/   PRESS.glb SCREW.glb SORT.glb
+src/layout.default.json  기본 자리(읽기 전용 fallback)
+data/layout.json         쓰는 자리 (LAYOUT_FILE, git 제외)
 tests/              Node 헤드리스
 ```
 

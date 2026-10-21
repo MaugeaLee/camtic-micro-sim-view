@@ -1,5 +1,5 @@
 // .env 파싱 · 환경변수가 파일보다 우선 · 공개 설정에 디스크 경로 없음.
-import { parseEnv, loadEnv, readConfig, mergeConfig, publicConfig } from '../server/env.mjs';
+import { parseEnv, loadEnv, readConfig, mergeConfig, publicConfig, VERSION } from '../server/env.mjs';
 import { runtime, assetUrl, apiPath } from '../js/core/runtime.js';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -16,7 +16,6 @@ HOST=0.0.0.0
 PORT=9000
 APP_NAME="cell view"
 ASSET_URL=models
-API_STATUS=/v1/health
 SKIP
 =novalue
 `);
@@ -31,12 +30,14 @@ check('파일 로드', box.HOST === '10.0.0.1' && box.PORT === '1');
 check('이미 있는 키는 유지', box.ALREADY === 'env');
 fs.unlinkSync(tmp);
 
-const cfg = readConfig({ HOST: '192.168.0.8', PORT: '8123', APP_NAME: 'x', ASSET_DIR: 'a/b', ASSET_URL: 'files', API_PREFIX: 'svc', API_STATUS: 'svc/ok', API_ASSETS: 'svc/list', API_CONFIG: 'svc/cfg', API_ASSET_VIEWER: 'svc/view', API_DOCS: 'svc/docs', API_OPENAPI: 'svc/openapi.json' });
-check('경로 정규화', cfg.assetUrl === '/files/' && cfg.apiPrefix === '/svc' && cfg.api.status === '/svc/ok' && cfg.api.assetViewer === '/svc/view' && cfg.api.docs === '/svc/docs' && cfg.api.openapi === '/svc/openapi.json');
+const cfg = readConfig({ HOST: '192.168.0.8', PORT: '8123', APP_NAME: 'x', ASSET_DIR: 'a/b', ASSET_URL: 'files', API_STATUS: '/v1/health', API_PREFIX: 'svc' });
+check('에셋 URL 정규화', cfg.assetUrl === '/files/');
 check('포트 숫자', cfg.port === 8123 && cfg.host === '192.168.0.8');
+check('API는 env를 안 읽음', cfg.apiPrefix === '/api' && cfg.api.status === '/api/status' && cfg.api.docs === '/api/docs');
 
 const pub = publicConfig(cfg);
-check('공개 설정에 디스크 경로 없음', !('assetDir' in pub) && pub.api.config === '/svc/cfg');
+check('공개 설정에 디스크 경로 없음', !('assetDir' in pub) && !('layoutFile' in pub) && pub.api.config === '/api/config' && pub.api.layout === '/api/layout');
+check('버전은 package.json', cfg.version === VERSION && pub.version === VERSION && typeof VERSION === 'string' && VERSION.length > 0);
 
 const merged = mergeConfig({ port: 0, api: { status: '/z' } }, { PORT: '9', API_STATUS: '/a' });
 check('오버라이드가 env보다 우선', merged.port === 0 && merged.api.status === '/z' && merged.api.assets === '/api/assets');

@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "snap": 1,
+  "cells": {
+    "PRESS": { "x": -14, "z": -2, "rotY": 0 },
+    "SCREW": { "x": 0, "z": -2, "rotY": 0 },
+    "SORT": { "x": 14, "z": -2, "rotY": 0 }
+  }
+}
