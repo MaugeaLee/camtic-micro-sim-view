@@ -1,0 +1,59 @@
+// app-server: 화이트리스트, 경로 탈출, .env 엔드포인트, index 주입.
+import { startServer, listAssets } from '../server/app-server.mjs';
+
+let pass = 0, fail = 0;
+const check = (name, ok, info = '') => { ok ? pass++ : fail++; console.log(`  ${ok ? 'PASS' : 'FAIL'} ${name}${info ? ' — ' + info : ''}`); };
+
+console.log('server');
+const { server, port, cfg } = await startServer({ port: 0, host: '127.0.0.1' });
+const base = `http://127.0.0.1:${port}`;
+const get = (p, init) => fetch(base + p, init);
+
+try {
+  const html = await (await get('/')).text();
+  check('/ → index.html', html.includes('importmap'));
+  check('index 에 __ENV 주입', html.includes('window.__ENV') && html.includes(`"port":${port}`));
+
+  const js = await get('/js/main.js');
+  check('js MIME', js.status === 200 && js.headers.get('content-type').startsWith('text/javascript'));
+  check('vendor three 서빙', (await get('/vendor/three/three.module.js')).status === 200);
+
+  const st = await (await get(cfg.api.status)).json();
+  check('status', st.name === cfg.name && Array.isArray(st.assets) && st.env.api.status === cfg.api.status);
+
+  const assets = await (await get(cfg.api.assets)).json();
+  check('assets = 디스크 목록', JSON.stringify(assets) === JSON.stringify(listAssets()), assets.map((a) => a.key).join(','));
+
+  const conf = await (await get(cfg.api.config)).json();
+  check('config 공개 필드', conf.host && conf.assetUrl && !('assetDir' in conf));
+
+  if (assets.length) {
+    const glb = await get(`${cfg.assetUrl}${encodeURIComponent(assets[0].file)}`, { method: 'HEAD' });
+    check('glb MIME', glb.status === 200 && glb.headers.get('content-type') === 'model/gltf-binary');
+  }
+
+  check('경로 탈출 차단', (await get('/js/%2e%2e/server/app-server.mjs')).status === 404);
+  check('화이트리스트 밖 404', (await get('/server.mjs')).status === 404 && (await get('/context/facts.json')).status === 404);
+  check('API 쓰기 거부', (await get(cfg.api.status, { method: 'POST' })).status === 405);
+  check('없는 API 404', (await get(`${cfg.apiPrefix}/nope`)).status === 404);
+} finally {
+  server.close();
+}
+
+const custom = await startServer({
+  port: 0, host: '127.0.0.1', name: 'alt',
+  assetUrl: '/models/', apiPrefix: '/v1',
+  api: { status: '/v1/health', assets: '/v1/files', config: '/v1/cfg' },
+});
+try {
+  const u = `http://127.0.0.1:${custom.port}`;
+  const health = await (await fetch(`${u}/v1/health`)).json();
+  check('커스텀 엔드포인트', health.name === 'alt' && (await fetch(`${u}/api/status`)).status === 404);
+  const page = await (await fetch(`${u}/`)).text();
+  check('주입된 경로가 커스텀', page.includes('/v1/health') && page.includes('/models/'));
+} finally {
+  custom.server.close();
+}
+
+console.log(`  ${pass} pass, ${fail} fail`);
+process.exitCode = fail ? 1 : 0;

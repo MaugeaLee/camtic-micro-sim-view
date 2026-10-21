@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Micro-Cell Viewer</title>
+<link rel="stylesheet" href="css/style.css">
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/" } }
+</script>
+</head>
+<body>
+<div id="viewport"></div>
+
+<header class="topbar">
+  <div class="brand">Micro-Cell Viewer</div>
+  <div class="controls">
+    <button id="btnPlay">재생</button>
+    <div id="speedSeg" class="seg"></div>
+    <span id="clock">00:00:00</span>
+  </div>
+</header>
+
+<aside class="panel left">
+  <h2>셀</h2>
+  <ul id="cellList" class="cells"></ul>
+</aside>
+
+<aside class="panel right">
+  <h2>로그</h2>
+  <ul id="logList" class="log"></ul>
+</aside>
+
+<footer class="bottombar"><span id="statusLine">부팅 중…</span></footer>
+
+<script>
+/*__ENV__*/
+if (/\.github\.io$/.test(location.hostname)) window.MICROSIM_NO_SERVER = true;
+</script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

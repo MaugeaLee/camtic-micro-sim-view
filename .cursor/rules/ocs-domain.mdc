@@ -1,0 +1,20 @@
+---
+description: 로컬 OCS·존·견적 도메인 지식. 수치와 역할 분리의 소스 오브 트루스.
+alwaysApply: true
+---
+
+# OCS 도메인
+
+작업 전 `context/README.md`를 기준으로 필요한 파일을 읽는다. 금액·수량·셀 ID는 `context/facts.json`과 대조한다.
+
+## 깨면 안 되는 분리
+
+- OCS Cell은 수집·감독·재계획만. 로봇·서보 실시간 제어는 셀 PLC EtherCAT.
+- Isaac Sim/Lab = 학습 DT. DMWorks = 검증 DT (물리엔진 없음, PLC는 Read·핸드셰이크만).
+- A-3 정밀조립 BOM은 캠틱 자체 산정. A-1-4/A-2-5/A-4-5는 이지로보틱스 10/15 턴키. 로컬 HW 상세는 정밀조립 예시 가정이다.
+
+## 표기
+
+- 금액 단위 천원, VAT 별도. 견적 표지 VAT 표기는 엇갈림(`07-open-issues.md`).
+- 공개·제출 문서: 일반 명칭만. 내부 대조열에만 모델명.
+- 미확정(보관기간, VAT, AMC 4년 vs 5년, AIMS/TESCar, 개발 주체)을 확정처럼 쓰지 않는다.

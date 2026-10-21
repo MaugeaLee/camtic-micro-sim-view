@@ -1,0 +1,139 @@
+{
+  "meta": {
+    "source": "https://theuniversepark.github.io/micro-cell/",
+    "repo": "https://github.com/theuniversepark/micro-cell",
+    "status": "설계 추정본·검토본",
+    "currency": "KRW thousands, VAT extra",
+    "quote_date": "2026-10-15",
+    "precision_price_recheck": "2026-10-07",
+    "dmworks_page_updated": "2026-10-19",
+    "discount_vs_list": 0.572,
+    "amc_rate": 0.18,
+    "amc_years_calculated": 4,
+    "amc_years_quoted_text": 5,
+    "overhead_rate": 0.10,
+    "overhead_base": ["ocs_sw", "ocs_hw", "support"],
+    "fx": { "USD": 1400, "EUR": 1550, "GBP": 1800, "AUD": 900, "CAD": 1000, "HKD": 180 }
+  },
+  "invariants": [
+    "OCS collects/supervises/replans; realtime motion stays on cell PLC EtherCAT",
+    "Isaac Sim/Lab = learning DT; DMWorks = verification DT",
+    "Public/submission docs use generic names only",
+    "Precision A-3 BOM is in-house estimate, not EasyRobotics turnkey",
+    "Sim-cell local-HW breakdown is assumed from precision example"
+  ],
+  "precision_a3": {
+    "site_temp": "전북대 창조2관 2층",
+    "cells": ["A-3-5", "A-3-2", "A-3-3", "A-3-1", "A-3-4"],
+    "per_cell": {
+      "cobot": 10,
+      "amr": 4,
+      "ammr": 1,
+      "robots": 15,
+      "cameras": 55,
+      "aas_tags_est": 9950,
+      "mbps": 1246,
+      "tb_month": 98.7,
+      "video_tb_month": 97.7,
+      "telemetry_tb_month": 1.01
+    },
+    "zone": {
+      "cells": 5,
+      "robots": 75,
+      "cameras": 275,
+      "aas_tags_est": 49750,
+      "mbps": 6232,
+      "tb_month": 493.6,
+      "video_share": 0.98,
+      "hours_month": 176
+    },
+    "storage": {
+      "policy": "raw 3 months + ai-ready 3 months",
+      "need_tb": 2310,
+      "nodes_3month": 19,
+      "need_tb_1month_approx": 770,
+      "nodes_1month_approx": 6
+    },
+    "amounts_cheonwon": {
+      "zone_hw": 1584800,
+      "zone_sw": 200848,
+      "zone_subtotal": 1785648,
+      "cell_hw": 763000,
+      "cell_sw": 0,
+      "total": 2548648,
+      "dmworks_one_seat_sw_only": 156781
+    },
+    "camera_mbps_each": 22.4,
+    "edge": { "thor_per_zone": 55, "orin_per_zone": 20 }
+  },
+  "quotes": {
+    "fms_a14": {
+      "id": "견26CAMTIC-DMWorks-1015-1",
+      "total": 1991000,
+      "compare": 2258000,
+      "ocs_sw": 574396,
+      "ocs_hw": 631950,
+      "local_hw": 528000,
+      "local_ocs_sec": 88000,
+      "support": 44550,
+      "overhead": 125089,
+      "amc": 240445,
+      "site_temp": "전북대 창조2관 3층",
+      "plan_y1_million": 2100,
+      "scanner": "RTC700 space 171600"
+    },
+    "adaptive_a25": {
+      "id": "견26CAMTIC-DMWorks-1015-2",
+      "total": 2192000,
+      "compare": 2400000,
+      "ocs_sw": 546652,
+      "ocs_hw": 669350,
+      "local_hw": 682000,
+      "local_ocs_sec": 88000,
+      "support": 77000,
+      "overhead": 129299,
+      "amc": 228831,
+      "site_temp": "전북대 창조2관 3층",
+      "plan_y1_million": 2320,
+      "scanner": "HyperScan small auto 209000"
+    },
+    "qms_a45": {
+      "id": "견26CAMTIC-DMWorks-1015-3",
+      "total": 2610000,
+      "compare": 3059000,
+      "ocs_sw": 1163671,
+      "ocs_hw": 460350,
+      "local_hw": 627000,
+      "local_ocs_sec": 88000,
+      "support": 99000,
+      "overhead": 172301,
+      "amc": 487118,
+      "site_temp": "전북대 산학융합플라자 3층",
+      "plan_y1_million": 2600,
+      "scanner": null
+    },
+    "three_zone_total": 6793000
+  },
+  "dmworks_unit_cheonwon": {
+    "base": 81338,
+    "cad_io": 5148,
+    "olp": 13728,
+    "rrs": 11440,
+    "point_cloud": 21736,
+    "multiple_process": 26312,
+    "plc_sim": 25282,
+    "plugin_dev": 24024,
+    "plugin_user": 8008,
+    "monitoring": 35200,
+    "usd_converter": 15840,
+    "live_edit": 11440,
+    "acs_base": 28600,
+    "acs_olp": 18920,
+    "aims_sim": 52800,
+    "aims_ctrl": 39600,
+    "pia": 35200,
+    "tescar": 66000
+  },
+  "final_site": "연구클러스터 메타팩토리 공장동",
+  "relocate_year": 2029
+}

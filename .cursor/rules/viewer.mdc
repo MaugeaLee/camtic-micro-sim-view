@@ -1,0 +1,20 @@
+---
+description: 렌더 뷰어 코드(js/ server/ tests/) 작업 규칙
+globs: js/**,server/**,tests/**,index.html,css/**
+alwaysApply: false
+---
+
+# 렌더 뷰어
+
+구조는 `docx/10-viewer.md`. 먼저 읽는다.
+
+- 프레임워크·번들러 없음. vanilla ES module + import map + `vendor/three` r186. npm 의존성을 늘리지 않는다.
+- `js/main.js`만 레이어를 잇는다. `sim/` `data/` `core/`는 three·DOM import 금지(Node 테스트 대상).
+- 상태 단일 소스 = `ViewerState`. 뷰·UI는 읽고 콜백으로 요청. 이벤트 버스 추가 금지 — `emit` / `drainEvents`.
+- 시뮬 스텝은 `advance()`의 0.1 s 분할을 거친다. 벽시계로 상태를 바꾸지 않는다.
+- 보조 뷰포트(CCTV·로봇캠·월)는 요청 전까지 만들지 않는다.
+- 1 = 1 m, Y-up. 셀 id는 STEP 조립품 이름. A-3-n·시뮬 셀 ID와 매핑하지 않는다.
+- 서버는 정적 + GET 읽기 전용. 호스트·포트·API·에셋 URL은 `.env` (`server/env.mjs`). 코드에 리슨 주소·엔드포인트를 새로 박지 않는다. `context/` `docx/` 서빙 금지.
+- 새 DOM 없는 모듈에는 `tests/*.mjs`를 붙이고 `package.json` test 체인에 넣는다. 항상 참인 판정은 쓰지 않는다.
+- 셀 배치는 코드가 아니라 정의 데이터에. 배치·테스트 기준 변경은 안을 먼저 제시하고 확정 후 반영.
+- 끝낼 때: `npm test` PASS, 화면이 바뀌면 스크린샷 확인, 확인한 것과 못 한 것을 나눠 보고. 커밋은 요청 시에만.
