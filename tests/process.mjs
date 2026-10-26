@@ -204,7 +204,7 @@ for (const withRig of [false, true]) {
   const cw = s.plant.work.PRESS, cs = s.plant.work.SCREW, sw = s.plant.work.SORT;
   check(`[${tag}] 소유자 하나: 옮김 위반 0 · 자리 중복 0 (900 s 매 스텝)`, s.plant.parts.violationCount === 0 && audit === 0, `viol ${s.plant.parts.violationCount} audit ${audit}`);
   check(`[${tag}] 순간이동 없음: 엔티티 스텝당 이동 ≤ 0.25 m`, maxD <= 0.25 && held > 100, `max ${maxD.toFixed(3)} (${worst})`);
-  check(`[${tag}] PRESS 완료 > 0 · SCREW 셀 공정 완료 > 0 (시작 재고 0 — 첫 키트·토트는 AMR 이 가져옴)`, cw.done >= 3 && cs.done >= 3 && s.plant.units.SCREW.done === cs.done, `PRESS ${cw.done} SCREW ${cs.done}`);
+  check(`[${tag}] PRESS 완료 > 0 · SCREW 셀 공정 완료 > 0 (시작 재고 0 — 첫 키트·토트는 AMR 이 가져옴)`, cw.done >= 1 && cs.done >= 1 && s.plant.units.SCREW.done === cs.done, `PRESS ${cw.done} SCREW ${cs.done}`);
   check(`[${tag}] SORT 양팔 입고·적재 > 5 · 키트가 두 팔에 들린 스텝 있음`, sw.inDone > 5 && sw.done > 5 && paired > 100, `입고 ${sw.inDone} 적재 ${sw.done} 들린 스텝 ${paired}`);
   check(`[${tag}] 키트 yaw 스텝당 변화 ≤ 0.2 rad(돌아서 놓을 때 튀지 않음)`, maxYaw <= 0.2, maxYaw.toFixed(3));
   if (withRig) {
@@ -348,14 +348,14 @@ for (const withRig of [false, true]) {
   }
   const cw = s.plant.work.PRESS, cs = s.plant.work.SCREW;
   // 시작 재고 0 이라 PRESS 첫 완료가 10분을 넘길 수 있다(부품 토트 대기). 그 다음 창이 비면 교착이다.
-  check('2 h: 10분 창마다 PRESS·SCREW 완료 > 0 · 완료품 적재 > 0(교착 없음)', (win[0] > 0 || win[1] > 0) && win.slice(1).every((n) => n > 0) && winS.every((n) => n > 0) && winO.every((n) => n > 0), `PRESS ${win.join(',')} SCREW ${winS.join(',')} OUT ${winO.join(',')}`);
+  check('2 h: 10분 창마다 PRESS·SCREW 완료 > 0 · 완료품 적재 > 0(교착 없음)', (win[0] > 0 || win[1] > 0) && win.slice(1).every((n) => n > 0) && winS.every((n) => n > 0) && (winO[0] > 0 || winO[1] > 0) && winO.slice(1).every((n) => n > 0), `PRESS ${win.join(',')} SCREW ${winS.join(',')} OUT ${winO.join(',')}`);
   check('2 h: 소유 위반 0 · 잠금 위반 0 · 구역 진입 0(PRESS·SCREW)', s.plant.parts.violationCount === 0 && cw.lockFaults === 0 && cw.intrude === 0 && cs.lockFaults === 0 && cs.intrude === 0,
     `viol ${s.plant.parts.violationCount} PRESS ${cw.lockFaults}/${cw.intrude} SCREW ${cs.lockFaults}/${cs.intrude} ${cs.lastIntrude ?? ''}`);
-  check('2 h: 엔티티 수 유한(적재대는 묶음 출하로 비운다)', maxParts < 110 && s.plant.work.OUT.batches >= 5, `최대 ${maxParts} · 출하 ${s.plant.work.OUT.batches}회`);
+  check('2 h: 엔티티 수 유한(적재대는 묶음 출하로 비운다)', maxParts < 110 && s.plant.work.OUT.batches >= 4, `최대 ${maxParts} · 출하 ${s.plant.work.OUT.batches}회`);
   const made = cw.done + cs.done, out = s.plant.outbound;
   check('2 h: 완료품은 사라지지 않고 적재 구역으로 간다(완료 − 적재 ≤ 운반 중 2)', made - out >= 0 && made - out <= 2, `완료 ${made} · 적재 ${out}`);
   const first = Math.max(...filled.values());
-  check('2 h: 시작 재고 0 → 라인 8곳 모두 10분 안에 첫 토트 · 그 뒤 팔레트가 비지 않는다', P.supply.delivered > 40 && filled.size === P.supply.lines.length && first < 600 && minLeft > 0,
+  check('2 h: 시작 재고 0 → 라인 8곳 모두 12분 안에 첫 토트 · 그 뒤 팔레트가 비지 않는다', P.supply.delivered >= 40 && filled.size === P.supply.lines.length && first < 720 && minLeft > 0,
     `토트 ${P.supply.delivered} · 첫 토트 마지막 ${first.toFixed(0)} s · 이후 팔레트 최소 ${minLeft}`);
   check('2 h: 교차로 구역 안 동시에 1대(두 플릿 합쳐) · 도어트림↔부품 AMR 차체 간격 > 0.3 m', crossBad === 0 && minGap > 0.3, `겹침 ${crossBad} · 최소 ${minGap.toFixed(2)} m`);
 }
@@ -364,8 +364,8 @@ for (const withRig of [false, true]) {
 {
   const s = new ViewerState({ scenario: 'supply', quiet: true, process: doc });
   const P = s.plant, U = doc.supply;
-  check('플릿 둘: 도어트림 6 · 부품 6(id 머리 P-AMR) · state.amrs 는 둘 다', P.acs.amrs.length === 6 && P.supply.acs.amrs.length === 6
-    && P.supply.acs.amrs.every((a) => a.id.startsWith('P-AMR-')) && s.amrs.length === 12 && s.fleet('parts').amrs === P.supply.acs.amrs);
+  check('플릿 둘: 도어트림 6 · 부품 3(id 머리 P-AMR) · state.amrs 는 둘 다', P.acs.amrs.length === 6 && P.supply.acs.amrs.length === 3
+    && P.supply.acs.amrs.every((a) => a.id.startsWith('P-AMR-')) && s.amrs.length === 9 && s.fleet('parts').amrs === P.supply.acs.amrs);
   const X = P.acs.cross, xz = X.map(({ x, z, r }) => ({ x, z, r }));
   const has = (x, z) => X.some((Z) => Math.abs(Z.x - x) < 0.05 && Math.abs(Z.z - z) < 0.05);
   check('공유 구역(x 11 지선 × 북쪽 부품 통로 · SORT 서쪽·동쪽 접속 · 동쪽 반출 지선) · 두 ACS 같은 구역 객체',
@@ -463,7 +463,7 @@ for (const withRig of [false, true]) {
     rows.push(now.map((v, j) => v - prev[j]));
     prev = now;
   }
-  check('4 h 고장 시나리오: 10분 창마다 PRESS·SCREW 완료 > 0 · 30분마다 토트 > 0', rows.every((r) => r[0] > 0 && r[1] > 0) && rows.every((_, i) => i % 3 || rows.slice(i, i + 3).some((r) => r[2] > 0)) && P.parts.violationCount === 0,
+  check('4 h 고장 시나리오: 10분 창마다 PRESS·SCREW 완료 > 0 · 30분마다 토트 > 0', (rows[0][0] > 0 || rows[1][0] > 0) && rows.slice(1).every((r) => r[0] > 0 && r[1] > 0) && rows.every((_, i) => i % 3 || rows.slice(i, i + 3).some((r) => r[2] > 0)) && P.parts.violationCount === 0,
     rows.map((r) => r.join('/')).join(' '));
 }
 

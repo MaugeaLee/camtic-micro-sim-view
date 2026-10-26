@@ -2,7 +2,7 @@
 import { CELLS } from '../js/sim/cells.js';
 import { FIELD } from '../js/render/field-def.js';
 import {
-  DEFAULT_POSES, FIELD_SIZE, LAYOUT_VERSION, SNAP, canPlace, defaultLayout, layoutStamp, moveCell,
+  DEFAULT_POSES, FIELD_SIZE, FOOTPRINT, LAYOUT_VERSION, SNAP, canPlace, defaultLayout, layoutStamp, moveCell,
   moveItem, moveSpurEnd, normalizeLayout, placeItem, poseOf, rotateSpur, snapCoord, snapRot, toLocal, toWorld, translateSpur, validateLayout,
 } from '../js/sim/layout.js';
 
@@ -41,7 +41,7 @@ check('정규화 스냅', n.cells.PRESS.x === 4 && n.cells.PRESS.z === -2 && n.c
 
 // v2: AMR 경로·충전 자리·셀 지점
 check('v1 문서는 v2로 읽고 기본 AMR 경로를 붙인다', n.version === LAYOUT_VERSION && LAYOUT_VERSION === 2 && JSON.stringify(n.amr) === JSON.stringify(base.amr));
-check('기본 충전 자리 10개', base.amr.homes.length === 10);
+check('기본 충전 자리 6개', base.amr.homes.length === 6);
 const badEdge = structuredClone(base);
 badEdge.amr.route.edges.push({ a: 'A0', b: 'NOPE' });
 check('없는 노드 간선 거부', validateLayout(badEdge).some((e) => e.includes('NOPE')), validateLayout(badEdge).join(' · '));
@@ -93,7 +93,7 @@ check('스탬프에 AMR 경로 포함', layoutStamp(base) !== layoutStamp({ ...b
 
 // 부속 부품 AMR 루트(parts): 도어트림 루트(amr)와 따로. 창고 PARTS 자리 · 라인 도크 「셀:라인」(셀 로컬).
 {
-  check('기본: 부품 창고 자리 · 부품 루트 · 충전 자리 6 · 도크 8 + 창고 + SORT 투입', !!base.sites.PARTS && base.parts.homes.length === 6
+  check('기본: 부품 창고 자리 · 부품 루트 · 충전 자리 3 · 도크 8 + 창고 + SORT 투입', !!base.sites.PARTS && base.parts.homes.length === 3
     && Object.keys(base.parts.cells).length === 10 && !!base.parts.cells['PRESS:L01'] && !!base.parts.cells.PARTS
     && base.parts.cells['SORT:IN']?.exit === null && base.parts.cells['SORT:IN'].stops.length === 1);
   check('SORT 도어트림 정지점 7: 대기 2 · 레인 A–D · 듀얼', base.amr.cells.SORT.stops.length === 7);
@@ -115,6 +115,13 @@ check('스탬프에 AMR 경로 포함', layoutStamp(base) !== layoutStamp({ ...b
     if (!d || Math.abs(d.stops[0].x - L.x) > 1e-9 || Math.sign(d.stops[0].z) !== (north ? 1 : -1)) off.push(`${id}:${L.id}`);
   }
   check('라인 도크 x = 공정 정의 라인 x · 적재 팔레트 쪽(남·북)', off.length === 0, off.join(','));
+  const P = base.sites.PARTS, hw = FOOTPRINT.PARTS.w / 2;
+  const sub = base.parts.homes, west = sub.filter((h) => h.x < P.x - hw), east = sub.filter((h) => h.x > P.x + hw);
+  check('부품 충전 자리는 창고 좌우(서 2 · 동 1 · 도크 앞 아님) · 도어트림은 북쪽 통로 한 줄 6',
+    base.amr.homes.length === 6 && base.amr.homes.every((h, i) => h.z === 9.6 && (!i || Math.abs(h.x - base.amr.homes[i - 1].x + 1.4) < 1e-6))
+    && west.length === 2 && east.length === 1 && west.concat(east).every((h) => h.z === -13.4)
+    && !sub.some((h) => Math.abs(h.x - P.x) < 2),
+    JSON.stringify({ trim: base.amr.homes, sub, P }));
 }
 
 console.log(`  ${pass} pass, ${fail} fail`);

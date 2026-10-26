@@ -94,12 +94,12 @@ try {
   const empty = await (await fetch(`${u}${moved.cfg.api.layout}`)).json();
   check('없는 파일은 기본 자리', empty.cells.PRESS.x === defaultLayout().cells.PRESS.x);
   const next = { ...defaultLayout(), cells: { ...defaultLayout().cells, PRESS: { x: 4, z: 6, rotY: 0 } } };
-  next.amr = { ...next.amr, homes: next.amr.homes.slice(0, 5) };
+  next.amr = { ...next.amr, homes: next.amr.homes.slice(0, 3) };
   const put = await fetch(`${u}${moved.cfg.api.layout}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(next) });
   const saved = await put.json();
-  check('layout PUT (셀 자리 + AMR 경로)', put.status === 200 && saved.cells.PRESS.z === 6 && saved.amr.homes.length === 5);
+  check('layout PUT (셀 자리 + AMR 경로)', put.status === 200 && saved.cells.PRESS.z === 6 && saved.amr.homes.length === 3);
   const again = await (await fetch(`${u}${moved.cfg.api.layout}`)).json();
-  check('PUT 후 GET', again.cells.PRESS.z === 6 && again.amr.homes.length === 5 && again.rev > 0);
+  check('PUT 후 GET', again.cells.PRESS.z === 6 && again.amr.homes.length === 3 && again.rev > 0);
   const bad = await fetch(`${u}${moved.cfg.api.layout}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: '{"version":1}' });
   check('잘못된 PUT 거부', bad.status === 400);
 } finally {

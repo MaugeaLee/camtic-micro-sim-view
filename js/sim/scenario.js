@@ -31,7 +31,7 @@ export const AMR_MAX = AMR_HOMES_MAX;
 const base = {
   assumed: true,
   amr: 6,
-  parts: 6,     // 부속 부품 AMR(도어트림 AMR 과 따로 — 창고→SORT 투입, SORT 레인→라인 두 구간)
+  parts: 3,     // 부속 부품 AMR(도어트림 AMR 과 따로 — 창고→SORT 투입, SORT 레인→라인 두 구간)
   stage: 3,
   source: 'SORT',
   sinks: ['SCREW', 'PRESS'],

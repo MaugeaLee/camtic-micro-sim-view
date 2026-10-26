@@ -2,8 +2,6 @@
 import { ViewerState } from '../js/sim/state.js';
 import { AMR } from '../js/sim/fleet.js';
 import { bounds, defaultLayout, normalizeLayout } from '../js/sim/layout.js';
-import { AMR_MAX } from '../js/sim/scenario.js';
-
 let pass = 0, fail = 0;
 const check = (name, ok, info = '') => { ok ? pass++ : fail++; console.log(`  ${ok ? 'PASS' : 'FAIL'} ${name}${info ? ' — ' + info : ''}`); };
 
@@ -42,14 +40,14 @@ function soak(n, seconds, layout = defaultLayout()) {
 }
 
 // 시작: 생성이 아니라 충전 자리에 미리 서 있다
-const s0 = new ViewerState({ scenario: 'supply', amr: AMR_MAX });
 const homes = defaultLayout().amr.homes;
-check(`${AMR_MAX}대가 처음부터 충전 자리에 있다`, s0.amrs.length === AMR_MAX && s0.amrs.every((a, i) => a.x === homes[i].x && a.z === homes[i].z && a.mode === 'park'));
+const s0 = new ViewerState({ scenario: 'supply', amr: homes.length });
+check(`${homes.length}대가 처음부터 충전 자리에 있다`, s0.amrs.length === homes.length && s0.amrs.every((a, i) => a.x === homes[i].x && a.z === homes[i].z && a.mode === 'park'));
 check('충전 자리는 루트를 등지고 선다(앞으로 들어와 후진으로 나감)', s0.amrs.every((a) => Math.abs(Math.abs(a.heading) - Math.PI) < 1e-6));
 
-// 1~10대 × 2시간: 교착(우선 통행) 없음, 간격 유지, 잠금 없이 셀 안 없음, 교차 구역 1대
+// 1~충전 자리 수 × 2시간: 교착(우선 통행) 없음, 간격 유지, 잠금 없이 셀 안 없음, 교차 구역 1대
 const rows = [];
-for (let n = 1; n <= AMR_MAX; n++) {
+for (let n = 1; n <= homes.length; n++) {
   const r = soak(n, 7200);
   rows.push(`${n}대=${r.s.plant.delivered}`);
   const ok = r.passes === 0 && r.maxBlock <= 15 && (n === 1 || r.minGap >= 2 * AMR.radius) && r.intrude === 0 && r.lockOk && r.zoneOk;
@@ -69,15 +67,15 @@ check('PRESS 하역 자리 = 셀 안 도크 · 방향 정렬', docked && Math.hy
   docked ? `(${docked.x.toFixed(2)}, ${docked.z.toFixed(2)}) h=${docked.heading.toFixed(3)}` : '하역 없음');
 
 // 레이아웃 변경 → 미션 회수·키트 버퍼 복귀, 전원 충전 자리 재배치
-const c = new ViewerState({ scenario: 'supply', amr: 6 });
+const c = new ViewerState({ scenario: 'supply', amr: 4 });
 for (let i = 0; i < 2000; i++) c.step(0.1);
 const loaded = c.amrs.filter((a) => a.load).length, kits = c.plant.kits.length;
-const lay2 = normalizeLayout({ ...defaultLayout(), amr: { ...defaultLayout().amr, homes: defaultLayout().amr.homes.slice(0, 4) } });
+const lay2 = normalizeLayout({ ...defaultLayout(), amr: { ...defaultLayout().amr, homes: defaultLayout().amr.homes.slice(0, 2) } });
 c.setLayout(lay2);
 check('레이아웃 변경: 싣던 키트는 버퍼로, 모두 충전 자리', c.plant.kits.length === kits + loaded && c.amrs.filter((a) => !a.off).every((a, i) => a.x === lay2.amr.homes[i].x && a.mode === 'park'));
 check('충전 자리보다 많은 차는 운휴', c.amrs.filter((a) => a.off).length === 2);
 const before = c.plant.delivered, offAt = c.amrs.filter((a) => a.off).map((a) => `${a.x},${a.z}`).join();
-for (let i = 0; i < 3000; i++) c.step(0.1);
+for (let i = 0; i < 6000; i++) c.step(0.1);
 check('운휴 차는 그대로, 나머지로 배송 계속', c.amrs.filter((a) => a.off).every((a) => !a.mission && !a.moving)
   && c.amrs.filter((a) => a.off).map((a) => `${a.x},${a.z}`).join() === offAt && c.plant.delivered > before + 5, `delivered ${before}→${c.plant.delivered}`);
 

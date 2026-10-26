@@ -43,7 +43,7 @@ check('교차 구역 · SORT 출구와 PRESS 입구는 한 구역 · 동쪽 반�
   && zs.some((z) => z.cells.includes('PRESS:OUT') || z.cells.includes('SCREW:OUT')), zs.map((z) => `${z.cells.join('+')}@${z.x.toFixed(1)},${z.z.toFixed(1)} r${z.r.toFixed(2)}`).join(' '));
 check('충전 자리는 교차 구역 밖', L.amr.homes.every((h) => zs.every((z) => Math.hypot(h.x - z.x, h.z - z.z) > z.r + 0.62)));
 const map = mapOf(routeGeo(L));
-check('그리기용 지도: 간선 12 · 충전 자리 10 · 셀 3 + 완료품 적재 구역 + 동쪽 반출 2 + SORT 뒤쪽 입고 · 충전 자리는 루트를 등진다', map.edges.length === 12 && map.homes.length === 10 && map.cells.length === 7 && !map.cells.find((c) => c.id === 'OUT').bad
+check('그리기용 지도: 간선 12 · 충전 자리 6 · 셀 3 + 완료품 적재 구역 + 동쪽 반출 2 + SORT 뒤쪽 입고 · 충전 자리는 루트를 등진다', map.edges.length === 12 && map.homes.length === 6 && map.cells.length === 7 && !map.cells.find((c) => c.id === 'OUT').bad
   && map.cells.some((c) => c.id === 'PRESS:OUT') && map.cells.some((c) => c.id === 'SCREW:OUT') && map.cells.some((c) => c.id === 'SORT:RAW')
   && map.homes.every((h) => near(h.heading, Math.PI, 1e-6) || near(h.heading, -Math.PI, 1e-6)));
 
@@ -58,10 +58,11 @@ check('간선 바꾸기: 양방향 → 단방향 → 없음 → 양방향', c1.s
 check('도크·입구·마지막 충전 자리는 못 지움', removeHandle(L.amr, { kind: 'stop', cell: 'PRESS', i: 0 }) === null
   && removeHandle(L.amr, { kind: 'entry', cell: 'PRESS' }) === null
   && removeHandle({ ...L.amr, homes: [L.amr.homes[0]] }, { kind: 'home', i: 0 }) === null);
-check(`충전 자리 상한 ${AMR_HOMES_MAX}`, addHome(L.amr, 0, 6) === null && addHome({ ...L.amr, homes: L.amr.homes.slice(1) }, 0, 6).homes.length === AMR_HOMES_MAX);
+const filled = { ...L.amr, homes: [...L.amr.homes, ...Array.from({ length: AMR_HOMES_MAX - L.amr.homes.length }, () => ({ x: 0, z: 6 }))] };
+check(`충전 자리 상한 ${AMR_HOMES_MAX}`, addHome(filled, 0, 6) === null && addHome({ ...L.amr, homes: filled.homes.slice(1) }, 0, 6).homes.length === AMR_HOMES_MAX);
 const x1 = addExit(L.amr, 'PRESS');
 check('출구 추가 → 통과 셀', !!x1.cells.PRESS.exit && cellGeo({ ...L, amr: x1 }).PRESS.dead === false);
-const rmNode = removeHandle(L.amr, { kind: 'node', id: 'A2' });
+const rmNode = removeHandle(L.amr, { kind: 'node', id: 'G2' });
 check('노드 지우면 붙은 간선도 지움 → 구조 검증은 통과, 점검에서 SCREW 도달 불가', validateLayout({ ...L, amr: rmNode }).length === 0
   && routeIssues(normalizeLayout({ ...L, amr: rmNode })).badCells.has('SCREW'));
 
