@@ -54,30 +54,16 @@
       "PRESS": {
         "entry": { "x": -4.6, "z": 0 },
         "stops": [
-          { "x": -1.83, "z": 0 }
+          { "x": 0.32, "z": 0 }
         ],
-        "exit": null
+        "exit": { "x": 4.6, "z": 0 }
       },
       "SCREW": {
         "entry": { "x": -4.6, "z": 0 },
         "stops": [
-          { "x": -1.83, "z": 0 }
+          { "x": 0.32, "z": 0 }
         ],
-        "exit": null
-      },
-      "PRESS:OUT": {
-        "entry": { "x": 4.6, "z": 0 },
-        "stops": [
-          { "x": 1.83, "z": 0 }
-        ],
-        "exit": null
-      },
-      "SCREW:OUT": {
-        "entry": { "x": 4.6, "z": 0 },
-        "stops": [
-          { "x": 1.83, "z": 0 }
-        ],
-        "exit": null
+        "exit": { "x": 4.6, "z": 0 }
       },
       "OUT": {
         "entry": { "x": 0, "z": 2.2 },

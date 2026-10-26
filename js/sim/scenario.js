@@ -1,13 +1,14 @@
 // 시나리오: 시뮬 시간축으로 셀 상태(IDLE/BUSY/DOWN)를 구동하고, 운반은 ACS(acs.js)에 미션으로 넘긴다. DOM·three 없음.
 // 흐름 가정: 도어트림 AMR이 원재료를 SORT 랙 뒤(SORT:RAW)에 하역하면 협동로봇이 랙에 올리고, 분류된 키트를 북쪽 양팔 도크에서 AMR에 실어 SCREW·PRESS 로 나른다.
 // 사이클·재고·고장 시각은 모두 가정값이다. 실측·확정 공정이 아니다. 기본 시나리오에는 고장이 없다.
-// 공정 정의(process.default.json)를 주면 키트·부품이 엔티티(소유자 하나)가 된다: SORT 랙 → (양팔 적재 또는 옮김) → AMR 적재면 → 셀 로봇 하역.
-// 스테이션 흐름이 있는 셀(PRESS·SCREW)은 cellwork.js 가 돌리고, 셀 상태·진행률·재고는 거기서 읽는다. SORT 적재는 sortwork.js.
+// 공정 정의(process.default.json)를 주면 키트(지그 + 도어트림)·부품이 엔티티(소유자 하나)가 된다.
+// 공정 순서 route(SORT → SCREW → PRESS → SCREW → OUT): 양팔이 지그째 메인 AMR MAIN 패널에 올림 → 셀 리프트 자리에 서면 클립이 지그를
+// 들어 올리고 AMR 은 직진해 빠짐 → 그 방문(pass) 작업 → 빈 메인 AMR 이 리프트 밑에 서면 내려 안착 → 다음 칸. 마지막은 완료품 적재 구역(OUT,
+// outwork.js) — 협동로봇이 도어트림만 집어 책장에 꽂고, 빈 지그를 실은 AMR 은 충전 자리로 돌아가 지그를 내려놓는다(회수 물류는 가정, 그리지 않음).
+// 리프트 셀(PRESS·SCREW)은 cellwork.js 가 돌리고, 셀 상태·진행률·재고는 거기서 읽는다. SORT 적재는 sortwork.js.
 // 흐름 없는 셀은 지그 자리(slots)로 옮김만 한다. 공정 정의가 없으면 예전처럼 사이클 타이머만 돈다.
-// 반출(unload)이 있는 셀: 완료품은 사라지지 않는다. 빈 AMR 이 동쪽 도크(PRESS:OUT·SCREW:OUT)로 받아 가서 협동로봇이 적재면에 올리면
-// 완료품 적재 구역(OUT, outwork.js)으로 싣고 가고, 거기 협동로봇이 집어 책장에 꽂는다.
-// 교착 방지: 투입 AMR 은 첫 스테이션이 빈 셀만 예약하고 간다(없으면 싣은 채 충전 자리 대기). 투입 운반 대수는
-// 플릿 − 반출 셀 수 이하로 둬서 반출 AMR 이 늘 남는다.
+// 교착 방지: 키트는 다음 칸 리프트가 비고 예약이 없을 때만 예약하고 간다(없으면 실은 채 충전 자리 대기, 뒤 공정 키트 먼저).
+// 흐름 안 키트 수(WIP)는 플릿 − 1 이하 — 리프트에 키트가 있으면 빈 AMR 이 적어도 한 대 있다.
 import { Acs, shareCross } from './acs.js';
 import { Hound } from './hound.js';
 import { AMR_HOMES_MAX, RAW_IN } from './amrdata.js';
@@ -17,7 +18,7 @@ import { OutWork } from './outwork.js';
 import { Parts } from './parts.js';
 import { SortFeed } from './sortfeed.js';
 import { SortWork } from './sortwork.js';
-import { normalizeProcess, outDef, supplyDef, workDef } from './process.js';
+import { normalizeProcess, outDef, passOf, supplyDef, workDef } from './process.js';
 import { Supply } from './supply.js';
 
 const smooth = (u) => u * u * (3 - 2 * u);
@@ -35,7 +36,7 @@ const base = {
   stage: 3,
   source: 'SORT',
   sinks: ['SCREW', 'PRESS'],
-  cycle: { SORT: 14, SCREW: 42, PRESS: 40 },
+  cycle: { SORT: 14, SCREW: 52, PRESS: 28 },   // 리프트 셀은 키트 하나에 쓰는 로봇 작업 합(SCREW 1차 21 + 2차 31)
   stock: { init: 0, cap: 2 },   // init: PRESS·SCREW 시작 키트 — 0이면 운송 AMR 이 먼저 가져와야 돈다
   buffer: 3,
   faults: [],
@@ -97,6 +98,10 @@ export class Plant {
     this.rack = null;
     this.supply = null;         // 부속 부품 AMR 플릿(공정 정의에 supply 가 있을 때)
     this.inM = null;            // 도어트림 입고 미션(한 건)
+    this.route = null;          // 공정 순서(공정 정의 route) — 있으면 키트 엔티티 step 이 그 칸 번호
+    this.lifts = [];            // 리프트 셀 id
+    this.inFlow = new Set();    // 분류 뒤 ~ 적재 구역 전 키트 엔티티
+    this.acs.onHome = (a) => this.dropJig(a);
     this.hound = new Hound({ layout });   // 견마: 통로 관제 보행 · 이상 감지·전파·접촉 리커버리(가정)
     this.proc = process ? normalizeProcess(process, { cycle: def.cycle }) : null;
     if (this.proc) this.setupProcess();
@@ -104,18 +109,27 @@ export class Plant {
 
   setupProcess() {
     const P = this.proc, S = this.def.source;
-    this.kitSpec = { size: P.kit.size, h: P.kit.size[1], color: P.kit.color, model: P.kit.model ?? null, lay: P.kit.lay ?? null };
+    const J = P.jig ?? null;
+    this.kitSpec = {
+      size: P.kit.size, h: P.kit.size[1] + (J?.size[1] ?? 0), color: P.kit.color, model: P.kit.model ?? null, lay: P.kit.lay ?? null,
+      fit: P.kit.fit ?? null, jig: J ? { size: J.size, color: J.color } : null,
+    };
     const src = P.cells[S];
     if (src?.rack) this.rack = { cell: S, pts: src.rack, items: src.rack.map(() => null), time: src.pickup };
     const U = supplyDef(P);
     const feed = U && this.def.parts > 0 && this.layout.parts && src?.feed ? new SortFeed(S, src.feed, this.parts) : null;
-    if (this.rack && src.load) this.work[S] = new SortWork(S, { ...src.load, kit: P.kit, deck: P.deck }, this.parts, this.rack, feed);
+    if (this.rack && src.load) this.work[S] = new SortWork(S, { ...src.load, kit: P.kit, jig: J, deck: P.deck }, this.parts, this.rack, feed);
+    this.route = P.route ?? null;
     for (const id of this.def.sinks) {
       const W = workDef(P, id), C = P.cells[id], u = this.units[id];
       if (W) {
         const cw = new CellWork(id, W, this.parts);
         this.work[id] = cw;
-        if (u.stock > 0) cw.seed();
+        this.lifts.push(id);
+        if (u.stock > 0) {
+          const e = cw.seed({ ...this.kitSpec });
+          if (e && this.route) { e.step = this.route.indexOf(id); this.inFlow.add(e); }
+        }
         Object.assign(u, cw.unit(false));
       } else if (C?.slots) {
         const sl = { cell: id, pts: C.slots, items: C.slots.map(() => null), time: C.handoff, active: null };
@@ -132,6 +146,10 @@ export class Plant {
       this.supply = new Supply(this, U, this.layout, this.def.parts, feed);
       this.linkCross();
     }
+    if (this.route) {
+      const miss = this.route.slice(1, -1).filter((id) => !this.lifts.includes(id));
+      if (miss.length || this.route[0] !== S || !this.work.OUT) throw new Error(`공정 순서 ${this.route.join('→')}: 시나리오 셀·OUT 과 안 맞음 ${miss.join(',')}`);
+    }
     this.placeDocks();
   }
 
@@ -143,23 +161,25 @@ export class Plant {
   // 두 플릿 AMR 모두
   get allAmrs() { return this.supply ? [...this.acs.amrs, ...this.supply.acs.amrs] : this.acs.amrs; }
 
-  // 반출(unload) 있는 셀
-  outCells() { return this.def.sinks.filter((id) => this.work[id]?.unloadOp && this.work.OUT); }
-
-  // 셀 도크를 셀 로컬로 — 서쪽 칸은 투입 하역, 「id:OUT」 동쪽 칸은 완료품 반출.
+  // 셀 도크(마지막 정차 칸)를 셀 로컬로 — 리프트 셀은 리프트 밑 칸.
   placeDocks() {
     for (const [id, cw] of Object.entries(this.work)) {
       const pose = placeOf(this.layout, id);
       const C = this.acs.cells[id];
       cw.dock = C && pose ? toLocal(pose, C.stops.at(-1)) : null;
-      const O = this.acs.cells[`${id}:OUT`];
-      if (O && pose) cw.outDock = toLocal(pose, O.stops.at(-1));
     }
+  }
+
+  // 빈 지그를 실은 AMR 이 충전 자리에 닿음 → 지그를 내려놓는다(지그 회수는 가정, 그리지 않음)
+  dropJig(a) {
+    if (a.keep) { this.parts.remove(a.keep); a.keep = null; }
   }
 
   setLayout(layout) {
     this.layout = layout;
     this.acs.setLayout(layout);
+    for (const a of this.acs.amrs) a.keep = null;
+    for (const e of this.parts.list()) if (e.type === 'jig' && e.holder.k === 'amr') this.parts.remove(e);
     this.supply?.setLayout(layout);
     this.hound.bind(layout);
     this.hound.reset();
@@ -276,7 +296,7 @@ export class Plant {
     const out = [];
     for (const e of this.parts.items.values()) {
       const p = this.poseOf(e);
-      if (p) out.push({ id: e.id, type: e.type, size: e.size, color: e.color, model: e.model ?? null, lay: e.lay ?? null, holder: e.holder.k, ...p });
+      if (p) out.push({ id: e.id, type: e.type, size: e.size, color: e.color, model: e.model ?? null, lay: e.lay ?? null, fit: e.fit ?? null, jig: e.jig ?? null, holder: e.holder.k, ...p });
     }
     return out;
   }
@@ -323,7 +343,8 @@ export class Plant {
   acceptIn(e) {
     if (!e || !this.parts.get(e.id) || this.kits.some((k) => k.e === e)) return;
     if (this.rack && !this.rack.items.includes(e)) return;
-    this.kits.push({ id: ++this.kitSeq, dest: this.nextDest(), e });
+    e.no = ++this.kitSeq;
+    this.kits.push({ id: e.no, dest: this.route ? this.route[1] : this.nextDest(), e });
     this.units[this.def.source].done++;
   }
 
@@ -408,75 +429,104 @@ export class Plant {
   }
 
   // 배차 요청: 키트 수(+10초 안에 나올 키트)만큼, 선행 배차 상한 stage 안에서 ACS에 픽업 미션을 넣는다.
-  // 반출 셀이 있으면: 투입 운반(싣고 대기 중 포함)은 플릿 − 반출 셀 수 이하. 플릿이 그보다 작으면 지금 받을 수 있는
-  // (첫 스테이션이 비고 예약 없는) 셀 수만큼만 — 싣은 채 기다리는 차가 반출 차를 막지 않게.
-  // 반출 미션은 마지막 스테이션이 반출 앞 단계에 들어서면 셀마다 하나씩 건다.
+  // 공정 순서(route)가 있으면: 리프트 셀 작업이 곧 끝나면(cellwork outSoon) 셀마다 반출(hop) 미션 하나, 분류 적재는 흐름 안 키트(WIP)가
+  // 플릿 − 1 이하일 때만 — 리프트에 키트가 있으면 빈 AMR 이 늘 남는다(실은 차가 모두 리프트 비기를 기다리는 교착이 없다).
+  // 리프트 하나에 2개(작업 중 1 + 오가는 1)를 넘으면 실은 채 충전 자리에서 기다리는 차만 는다 — 그 위로는 싣지 않는다(가정).
   dispatch() {
     const S = this.def.source;
-    // 키트가 랙에 오른 뒤에만 반출 AMR 을 보낸다 — 빈 차가 양팔 도크를 점유하면 입고가 막힌다.
     let need = Math.min(this.def.stage, this.kits.length) - this.acs.pendingFrom(S);
-    const outs = this.outCells();
-    const kitJob = (m) => m && !m.out && !m.raw;
-    if (outs.length && need > 0) {
+    if (this.route) {
+      for (const id of this.lifts) {
+        const cw = this.work[id];
+        if (!cw.outM && !this.units[id].down && cw.outSoon()) cw.outM = this.acs.request(this.hopMission(id));
+      }
       const fleet = this.acs.amrs.filter((a) => !a.off).length;
-      const inbound = this.acs.amrs.filter((a) => kitJob(a.mission)).length + this.acs.queue.filter(kitJob).length;
-      const open = this.def.sinks.filter((id) => { const cw = this.work[id]; return cw && !this.units[id].down && cw.canAccept(false) && !cw.reserved; }).length;
-      need = Math.min(need, fleet > outs.length ? fleet - outs.length - inbound : open - this.acs.amrs.filter((a) => kitJob(a.mission) && !a.load).length - this.acs.queue.filter(kitJob).length);
+      need = Math.min(need, Math.min(Math.max(1, fleet - 1), 2 * this.lifts.length) - this.wip());
     }
     for (let i = 0; i < need; i++) this.acs.request(this.mission());
-    for (const id of outs) {
-      const cw = this.work[id];
-      if (!cw.outM && !this.units[id].down && cw.outSoon()) cw.outM = this.acs.request(this.outMission(id));
-    }
   }
 
-  // 투입 목적지. 반출 셀은 첫 스테이션이 비고 예약이 없을 때만 예약하고 간다. 없으면 null(ACS 가 충전 자리에서 대기시킨다).
-  pickSink(kit) {
-    if (!this.outCells().length) return this.acs.ok(kit.dest) ? kit.dest : this.nextDest();
-    for (const id of this.def.sinks) if (this.work[id]?.reserved === kit.amr) this.work[id].reserved = null;
-    const order = [kit.dest, ...this.def.sinks.filter((id) => id !== kit.dest)].filter((id) => id && this.acs.ok(id));
-    if (!order.length) return this.nextDest();
-    for (const id of order) {
-      const cw = this.work[id];
-      if (!cw?.unloadOp) return id;
-      if (this.units[id].down || !cw.canAccept(false) || cw.reserved) continue;
-      cw.reserved = kit.amr;
-      return id;
-    }
-    return null;
+  // 흐름 안 키트 수: 분류 뒤 ~ 적재 구역 내리기 전 키트 + 아직 안 실은 분류 적재 미션
+  wip() {
+    for (const e of this.inFlow) if (!this.parts.get(e.id)) this.inFlow.delete(e);
+    return this.inFlow.size + this.acs.pendingFrom(this.def.source);
   }
 
-  // 반출 미션: 빈 AMR 이 동쪽 도크(id:OUT)에 서면 협동로봇이 완료품을 적재면에 올린다 → 적재 구역.
-  outMission(id) {
-    const cw = this.work[id], O = this.work.OUT, pick = this.acs.ok(`${id}:OUT`) ? `${id}:OUT` : id;
+  // 수요 기반 목적지(공정 순서 없을 때)
+  pickSink(kit) { return this.acs.ok(kit.dest) ? kit.dest : this.nextDest(); }
+
+  // ── 공정 순서: 키트 엔티티 step = 마지막으로 들른 route 칸 번호(분류 SORT = 0) ──
+  nextOf(e) { return this.route?.[(e?.step ?? 0) + 1] ?? null; }
+
+  // 다음 칸 예약. 리프트 셀은 리프트가 비고 다른 예약이 없을 때만, 뒤 공정(step 큰) 키트가 같은 셀을 기다리면 양보. 없으면 null(충전 자리 대기).
+  stageOf(load) {
+    const e = load.e;
+    if (!e) return this.acs.ok('OUT') ? 'OUT' : null;
+    const id = this.nextOf(e);
+    if (!id || !this.acs.ok(id)) return null;
+    if (id === 'OUT') return id;
+    const cw = this.work[id];
+    if (!cw) return null;
+    if (cw.reserved === load.amr) return id;
+    if (cw.reserved || this.units[id].down || !cw.canAccept(false)) return null;
+    // 뒤 공정 키트 먼저, 같은 공정이면 먼저 분류된 키트 먼저(줄 순서 — 대기 차 배열 순서로 정하면 뒤 번호 차가 굶는다)
+    const first = (x, y) => (x.step ?? 0) > (y.step ?? 0) || ((x.step ?? 0) === (y.step ?? 0) && (x.no ?? x.id) < (y.no ?? y.id));
+    if (this.acs.amrs.some((b) => b.load?.e && b.load !== load && b.load.dest == null && this.nextOf(b.load.e) === id && first(b.load.e, e))) return null;
+    cw.reserved = load.amr;
+    return id;
+  }
+
+  // 실은 키트를 다음 칸으로: 리프트 셀이면 리프트에 넘기고(그 방문 pass), OUT 이면 협동로봇이 도어트림만 집는다(빈 지그는 AMR 에 남음).
+  carry(m) {
+    const O = this.work.OUT;
+    m.what = { ...m.what, drop: (id) => (id === 'OUT' ? '하역' : '지그 올림') };
+    m.dest = (load) => this.stageOf(load);
+    m.canDrop = (id) => (id === 'OUT' ? O.canAccept() : !this.units[id].down && this.work[id].canAccept(false));
+    m.unload = (a, id) => {
+      const e = a.load?.e;
+      if (!e) return this.timer(1);
+      if (id === 'OUT') { m.U = O.offer(e, { k: 'amr', id: a.id }, toLocal(this.cellPose('OUT'), a), a.heading - Math.PI / 2); return m.U; }
+      const k = (e.step ?? 0) + 1;
+      e.step = k;
+      m.U = this.work[id].offer(e, { k: 'amr', id: a.id }, toLocal(this.cellPose(id), a), passOf(this.route, k));
+      return m.U;
+    };
+    m.drop = (load, id) => {
+      if (id !== 'OUT') { this.delivered++; return; }
+      if (load.e) { this.outbound++; this.inFlow.delete(load.e); }
+      const a = this.acs.amrs.find((x) => x.id === load.amr);
+      if (a && m.U?.jig && this.parts.get(m.U.jig.id)) a.keep = m.U.jig;
+    };
+    return m;
+  }
+
+  // 반출(hop): 빈 AMR 이 리프트 밑에 서면 지그를 내려 안착 → 다음 칸(리프트 셀 또는 OUT)으로.
+  hopMission(id) {
+    const cw = this.work[id];
     const m = {
-      from: pick, out: true,
-      what: { pick: `${id} 완료품 받으러`, wait: `${id} 완료품 대기`, hand: '반출', tag: id, carry: (to, l) => `완료품 #${l.id} → 적재 구역` },
+      from: id, hop: true,
+      what: {
+        pick: `${id} 지그 받으러`, wait: `${id} 작업 끝 대기(지그 밑)`, hand: '지그 내림', tag: id,
+        carry: (to, l) => `키트 #${l.id} → ${to === 'OUT' ? '적재 구역' : to}`,
+      },
       ready: () => !this.units[id].down && cw.outReady(),
-      pickup: (a) => { m.T = cw.offerOut({ k: 'amr', id: a.id }, toLocal(this.cellPose(id), a), a.heading - Math.PI / 2); return m.T; },
+      pickup: (a) => { m.T = cw.offerOut({ k: 'amr', id: a.id }, toLocal(this.cellPose(id), a)); return m.T; },
       load: (a) => {
         if (cw.outM === m) cw.outM = null;
         const e = m.T?.loaded && this.parts.get(m.T.kit?.id) ? m.T.kit : null;
-        return { id: `F${++this.outSeq}`, e, from: id, amr: a.id, out: true };
+        return { id: e?.no ?? e?.id ?? `F${++this.outSeq}`, e, from: id, amr: a.id };
       },
-      dest: () => (this.acs.ok('OUT') ? 'OUT' : null),
-      canDrop: () => O.canAccept(),
-      unload: (a) => {
-        const e = a.load?.e;
-        if (!e) return this.timer(1);
-        m.U = O.offer(e, { k: 'amr', id: a.id }, toLocal(this.cellPose('OUT'), a), a.heading - Math.PI / 2);
-        return m.U;
-      },
-      drop: (load) => { if (load.e) this.outbound++; },
       abort: (a) => {
         if (cw.outM === m) cw.outM = null;
+        for (const c of this.lifts) if (this.work[c].reserved === a.id) this.work[c].reserved = null;
         if (!a.load) { if (m.T) cw.cancelOut(m.T); return; }
-        if (m.U && O.cancel(m.U)) return;   // 협동로봇이 이미 물었다 — 적재 구역 몫
+        const W = this.work[a.load.dest];
+        if (W && a.ticket && W.cancel(a.ticket)) return;   // 리프트·협동로봇이 이미 물었다 — 그쪽 몫
         const e = a.load.e;
-        if (e && this.parts.get(e.id)) this.parts.remove(e);
+        if (e && this.parts.get(e.id)) { this.inFlow.delete(e); this.parts.remove(e); }
       },
     };
-    return m;
+    return this.carry(m);
   }
 
   mission() {
@@ -488,7 +538,11 @@ export class Plant {
         const i = Math.max(0, this.kits.findIndex((k) => k.e && k.e === m.picked));
         const k = this.kits.splice(i, 1)[0];
         m.picked = null;
-        if (k.e) { this.freeRack(k.e); this.parts.hold(k.e, { k: 'amr', id: a.id }, k.e.holder); }
+        if (k.e) {
+          this.freeRack(k.e);
+          this.parts.hold(k.e, { k: 'amr', id: a.id }, k.e.holder);
+          if (this.route) { k.e.step = 0; this.inFlow.add(k.e); }
+        }
         return { ...k, amr: a.id };
       },
       dest: (kit) => this.pickSink(kit),
@@ -516,9 +570,11 @@ export class Plant {
         if (!a.load) return;
         const e = a.load.e;
         const W = this.work[a.load.dest];
-        if (W && a.ticket && W.cancel(a.ticket)) return;   // 로봇이 이미 집으러 들어감 — 키트는 셀 몫
+        if (W && a.ticket && W.cancel(a.ticket)) return;   // 로봇·리프트가 이미 물었다 — 키트는 셀 몫
         for (const sl of Object.values(this.slots)) { const j = sl.items.indexOf(e); if (j >= 0) sl.items[j] = null; }
         if (e) {
+          this.inFlow.delete(e);
+          e.step = 0;
           const i = this.rack ? this.rack.items.indexOf(null) : -1;
           if (i >= 0) { this.rack.items[i] = e; this.parts.hold(e, { k: 'rack', cell: this.rack.cell, i }); }
           else this.parts.remove(e);
@@ -531,7 +587,7 @@ export class Plant {
     const sw = this.work[this.def.source];
     m.pickup = (a) => {
       if (sw) {
-        // 랙 맨 위(가장 높은 칸) 키트를 양팔이 집어 AMR 에 놓는다
+        // 랙 맨 위(가장 높은 칸) 키트를 양팔이 지그째 집어 메인 AMR MAIN 패널에 놓는다
         const k = this.kits.filter((x) => x.e && this.rack.items.includes(x.e)).sort((x, y) => this.rack.items.indexOf(y.e) - this.rack.items.indexOf(x.e))[0];
         if (!k) return this.timer(4);
         m.picked = k.e;
@@ -543,10 +599,10 @@ export class Plant {
       this.move(k.e, { k: 'amr', id: a.id }, this.rack.time);
       return this.timer(this.rack.time);
     };
+    if (this.route) return this.carry(m);
     m.unload = (a, id) => {
       const e = a.load?.e;
-      const W = this.work[id], sl = this.slots[id];
-      if (W && e) { if (W.reserved === a.id) W.reserved = null; return W.offer(e, { k: 'amr', id: a.id }, toLocal(this.cellPose(id), a)); }
+      const sl = this.slots[id];
       if (sl && e) {
         const i = sl.items.indexOf(null);
         sl.items[i] = e;
@@ -581,6 +637,7 @@ export class Plant {
       outbound: this.outbound,
       shipped: this.work.OUT?.shipped ?? 0,
       units: Object.values(this.units).map(({ id, state, stock, done, progress }) => ({ id, state, stock, done, progress })),
+      wip: this.route ? this.wip() : null,
       acs: this.acs.summary(),
       supply: this.supply ? { delivered: this.supply.delivered, acs: this.supply.acs.summary() } : null,
       hound: this.hound.view(),

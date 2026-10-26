@@ -29,7 +29,7 @@ export class SortWork {
     this.parts = parts;
     this.rack = rack;
     this.feed = feed;
-    this.kitH = L.kit.size[1];
+    this.kitH = L.kit.size[1] + (L.jig?.size[1] ?? 0);   // 지그째 옮긴다
     this.grip = L.grip;
     this.ticket = null;
     this.op = null;

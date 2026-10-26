@@ -6,10 +6,12 @@ export const AMR_HOMES_MAX = 10;
 const R = (v) => Math.round(v * 100) / 100;
 
 // 셀 로컬. stops 는 진입 순서이고 마지막이 도크다. exit 가 없으면 막다른 셀 — 도크에서 후진으로 나온다.
-// 서쪽 칸 = 키트 투입(PRESS·SCREW). 동쪽 칸(PRESS:OUT·SCREW:OUT) = 완료품 반출 — 동쪽에서 들어와 협동로봇이 적재면에 올리고 후진 출차.
+// PRESS·SCREW = 리프트 통과 칸: 서쪽에서 들어와 AMR_MAIN_JIG 자리(작업대 리프트 밑)에 서고, 지그를 들어 올리면(또는 내려 받으면)
+// 동쪽으로 직진해 빠진다. 정차 칸 x 는 GLB AMR_MAIN_JIG 차체(MobileBase) 가운데(tests/glb.mjs 가 대조).
 const BAY = Object.freeze({ entry: { x: -4.6, z: 0 }, stops: [{ x: -1.83, z: 0 }], exit: null });
-const EAST_BAY = Object.freeze({ entry: { x: 4.6, z: 0 }, stops: [{ x: 1.83, z: 0 }], exit: null });
-export const OUT_DOCKS = Object.freeze(['PRESS:OUT', 'SCREW:OUT']);
+export const LIFT_X = 0.32;
+const LIFT_BAY = Object.freeze({ entry: { x: -4.6, z: 0 }, stops: [{ x: LIFT_X, z: 0 }], exit: { x: 4.6, z: 0 } });
+export const LIFT_CELLS = Object.freeze(['PRESS', 'SCREW']);
 // 도어트림 원재료 입고: SORT 랙 남쪽(양팔 앞의 반대편). 북쪽 AMR_dual_pickup 은 분류 키트 적재만.
 export const RAW_IN = 'SORT:RAW';
 export const DEFAULT_AMR = Object.freeze({
@@ -32,8 +34,8 @@ export const DEFAULT_AMR = Object.freeze({
     { x: 7.6, z: 9.6 }, { x: 6.2, z: 9.6 }, { x: 4.8, z: 9.6 }, { x: 3.4, z: 9.6 }, { x: 2.0, z: 9.6 }, { x: 0.6, z: 9.6 },
   ],
   cells: {
-    PRESS: BAY,
-    SCREW: BAY,
+    PRESS: LIFT_BAY,
+    SCREW: LIFT_BAY,
     // AMR_waiting_2 · AMR_waiting_3 · 분류 레인 A–D 내림 자리 · AMR_dual_pickup. 서쪽으로 들어와 동쪽으로 빠진다(한 줄 통과형).
     // 레인 자리는 두 플릿이 같이 쓰는 칸이다 — 도어트림 AMR 은 지나가고, 부속 부품 AMR 은 그 레인에서 선다.
     SORT: {
@@ -44,8 +46,6 @@ export const DEFAULT_AMR = Object.freeze({
     // 완료품 적재 구역(가정, 절차 형상, PRESS 절반 발자국). 북쪽 통로 A4–G4 지선에서 들어와 협동로봇 앞 도크에 서고 후진 출차.
     // 지선이 출차 길이라 대기는 북쪽 통로 쪽(acs.js SPUR_HOLD).
     OUT: { entry: { x: 0, z: 2.2 }, stops: [{ x: 0, z: 0.3 }], exit: null },
-    'PRESS:OUT': EAST_BAY,
-    'SCREW:OUT': EAST_BAY,
     // 도어트림 원재료(가정): 랙 남쪽 막다른 칸. G1에서 서쪽으로 빠진 뒤(R2) 남하(R1)·서진(R0). 지선은 중심선(차로 오프셋이면 부품 남행 x −2.9 와 겹침).
     'SORT:RAW': { entry: { x: 6.36, z: -6.4 }, stops: [{ x: 6.36, z: -4.4 }], exit: null },
   },
@@ -106,11 +106,18 @@ export function normalizeAmr(raw, cellIds, d = DEFAULT_AMR) {
   const homes = (src.homes ?? d.homes).map(pt);
   const cells = {};
   for (const id of cellIds) {
-    const c = src.cells?.[id] ?? d.cells[id] ?? BAY;
+    let c = src.cells?.[id] ?? d.cells[id] ?? BAY;
+    if (d === DEFAULT_AMR && LIFT_CELLS.includes(id) && oldBay(c)) c = d.cells[id];
     cells[id] = { entry: pt(c.entry), stops: c.stops.map(pt), exit: c.exit ? pt(c.exit) : null };
   }
   if (cells.SORT && d === DEFAULT_AMR) cells.SORT = withLanes(cells.SORT);
   return { route: { nodes, edges }, homes, cells };
+}
+
+// 예전 PRESS·SCREW 막다른 투입 칸(서쪽 도크 x −1.83, 출구 없음) → 리프트 통과 칸으로 바꿔 읽는다. 사용자가 고친 칸은 그대로.
+function oldBay(c) {
+  const s = c?.stops;
+  return !c?.exit && Array.isArray(s) && s.length === 1 && Math.hypot(s[0].x - BAY.stops[0].x, s[0].z - BAY.stops[0].z) < 1e-6;
 }
 
 // SORT 분류 레인 A–D 내림 자리(셀 로컬 x, GLB Lane_*_transfer_type3 — tests/glb.mjs 가 대조).

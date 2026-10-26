@@ -2,6 +2,7 @@
 // holder 종류(k): amr{id} · rack{cell,i} · slot{cell,i} · station{cell,st} · robot{cell,r} · gantry{cell,line} · line{cell,line,s}
 //   · stock{cell,line} · kit{kit,at:[dx,dz]} · tote{tote,at?}(상자 안 부품) · move{from,to,t0,dur,arc}(두 자리 사이 옮김 — 몸체 없는 이송)
 //   · amr{id,at:[dx,dz,dy]}(한 AMR 여러 칸) · xfer{cell,t}(이송기) · belt{cell,line}(컨베이어·레인 롤러 위, 여럿)
+//   · lift{cell}(셀 작업대 리프트가 든 지그+도어트림)
 // 위치는 소유자가 정한다(scenario.js Plant.poseOf). 여기는 소유 관계와 위반만 다룬다.
 
 // 혼자만 가질 수 있는 소유자 열쇠. line·kit·move 는 여럿(같은 줄 위 다른 s, 키트 위 다른 자리)이라 따로 본다.
@@ -11,6 +12,7 @@ export function holderKey(h) {
     case 'xfer': return `xfer:${h.cell}:${h.t}`;
     case 'rack': case 'slot': return `${h.k}:${h.cell}:${h.i}`;
     case 'station': return `station:${h.cell}:${h.st}`;
+    case 'lift': return `lift:${h.cell}`;
     case 'robot': return `robot:${h.cell}:${h.r}`;
     case 'gantry': case 'stock': return `${h.k}:${h.cell}:${h.line}`;
     case 'kit': return `kit:${h.kit}:${h.at.join(',')}`;

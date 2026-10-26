@@ -81,13 +81,13 @@ check('SORT 대기 칸 = AMR_waiting_2 · 3, 도크 = AMR_dual_pickup', at(A.SOR
     && (!laneB || near(A.SORT.stops[3].x, laneB.cx, 0.1)), laneB ? `lane B ${laneB.cx.toFixed(2)} vs ${A.SORT.stops[3].x}` : 'AMR_pickup_lane_B 없음');
 }
 for (const id of ['PRESS', 'SCREW']) {
-  const roller = groupBox(id, 'Roller_01'), lane = groupBox(id, 'AMR_route');
-  const dock = A[id].stops.at(-1), east = A[`${id}:OUT`].stops.at(-1);
-  check(`${id} 도크가 Roller_01 앞 · AMR_route 통로 안`, roller && lane && dock.x >= roller.min[0] - 0.01 && dock.x <= roller.max[0] + 0.01
-    && dock.z >= lane.min[2] && dock.z <= lane.max[2] && A[id].entry.x <= lane.min[0] + 0.1,
-  roller ? `roller x ${roller.min[0].toFixed(2)}..${roller.max[0].toFixed(2)} · lane z ${lane?.min[2].toFixed(2)}..${lane?.max[2].toFixed(2)}` : 'Roller_01 없음');
-  check(`${id} 동쪽 반출 도크가 AMR_route 통로 안 · 서쪽 투입과 반대`, lane && east.x > 0 && east.x <= lane.max[0] + 0.1
-    && east.z >= lane.min[2] && east.z <= lane.max[2] && A[`${id}:OUT`].entry.x >= lane.max[0] - 0.1);
+  // 셀 GLB 의 AMR_MAIN_JIG = 메인 AMR(이송 AMR + 지그 상판). 그 자리가 리프트 정차 칸 — AMR 은 서쪽에서 들어와 동쪽으로 직진해 나간다.
+  const main = groupBox(id, 'AMR_MAIN_JIG'), lane = groupBox(id, 'AMR_route');
+  const stop = A[id].stops.at(-1), C = A[id];
+  check(`${id} 리프트 정차 칸 = AMR_MAIN_JIG 중심 · AMR_route 통로 안`, main && lane && C.stops.length === 1 && near(stop.x, main.cx, 0.05) && near(stop.z, main.cz, 0.05)
+    && stop.z >= lane.min[2] && stop.z <= lane.max[2], main ? `main ${main.cx.toFixed(3)},${main.cz.toFixed(3)} · stop ${stop.x},${stop.z}` : 'AMR_MAIN_JIG 없음');
+  check(`${id} 통과 셀: 입구 서쪽 끝 · 출구 동쪽 끝(같은 축 · 되돌아 나가지 않음) · 반출 도크 따로 없음`, lane && C.entry.x <= lane.min[0] + 0.1 && C.exit && C.exit.x >= lane.max[0] - 0.1
+    && C.entry.z === stop.z && C.exit.z === stop.z && !A[`${id}:OUT`], `entry ${C.entry.x} exit ${C.exit?.x} lane ${lane?.min[0].toFixed(2)}..${lane?.max[0].toFixed(2)}`);
 }
 
 {

@@ -141,7 +141,7 @@ export function normalizeLayout(raw) {
   }
   const doc = {
     version: LAYOUT_VERSION, snap, cells, sites,
-    amr: normalizeAmr(raw?.amr, [...IDS, 'OUT', 'PRESS:OUT', 'SCREW:OUT', 'SORT:RAW']),
+    amr: normalizeAmr(raw?.amr, [...IDS, 'OUT', 'SORT:RAW']),
     parts: normalizeAmr(raw?.parts ?? defaultPartsAmr(), PARTS_IDS, defaultPartsAmr()),
   };
   if (raw?.rev != null) doc.rev = raw.rev;

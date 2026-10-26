@@ -198,7 +198,7 @@ export class Amr {
     const b = this.bound;
     const od0 = o.wantDir ?? { x: Math.sin(o.heading), z: Math.cos(o.heading) };
     const behind = dir.x * od0.x + dir.z * od0.z > 0.7;
-    // 같은 칸 잠금 안에서는 줄로 선다. 다른 칸 차(G2: SCREW·PRESS:OUT)와는 줄이 아니다 — 구역을 잡은 쪽이 지나고
+    // 같은 칸 잠금 안에서는 줄로 선다. 다른 칸 차(G2: PRESS 출구·SCREW 입구)와는 줄이 아니다 — 구역을 잡은 쪽이 지나고
     // 아닌 쪽은 구역 간격으로 선다. 잠금 구간에서는 우회하지 않는다(지선 밖으로 빠져 서로 막지 않게).
     const queued = (this.inBranch && o.inBranch === this.inBranch) || (o.zoneWait && !fleet.holding?.(this)) || (b && behind && (o.waitFor === b || o.inBranch === b || (o.bound === b && !o.moving)));
     if (queued) { this.blockedOn = o; this.blockT = 0; return null; }

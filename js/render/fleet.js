@@ -1,5 +1,6 @@
 // 공급 AMR 플릿을 그린다: 차체·바퀴·상태등·적재 토트, 남은 경로선, ACS 지도(루트 통로·셀 정차 칸·충전 자리·교차 구역) 바닥 표시.
 // state.fleet(key) 의 amrs · acs.map() 을 읽기만 한다 (sim 을 import 하지 않음). 플릿(도어트림 · 부속 부품)마다 하나씩 만든다 — 차체·통로선 색으로 구분.
+// 도어트림 플릿은 셀 GLB 의 메인 AMR(AMR_MAIN_JIG) 모델을 쓴다(setModel). 모델이 없으면 상자 차체 + 적재면까지 올린 상부 모듈.
 import * as THREE from 'three';
 
 const BODY = Object.freeze({ l: 1.1, w: 0.78, h: 0.3, wheel: 0.1, clear: 0.06 });
@@ -24,6 +25,7 @@ export class FleetView {
     this.followed = null;
     this.t = 0;
     this.top = null;
+    this.model = null;
     this.shared = sharedParts(body, lane);
   }
 
@@ -43,11 +45,15 @@ export class FleetView {
   // 적재면 높이(m, 바닥 기준). null 이면 차체 윗면. 다음 setup 부터 반영.
   setTop(y) { this.top = Number.isFinite(y) ? y : null; }
 
+  // 차체 모델(원점 = 바닥 중심 · 앞 +z, render/mainamr.js). 있으면 상자 차체 대신 복제해 쓴다. 다음 setup 부터 반영.
+  setModel(tpl) { this.model = tpl ?? null; }
+
   make(a) {
     const S = this.shared;
     const g = new THREE.Group();
     g.name = a.id;
     g.userData.amrId = a.id;
+    if (this.model) return this.makeModel(a, g);
     const body = new THREE.Mesh(S.body, S.bodyMat);
     body.position.y = BODY.clear + BODY.h / 2;
     const deck = new THREE.Mesh(S.deck, S.deckMat);
@@ -85,6 +91,30 @@ export class FleetView {
     sel.position.y = 0.02;
     sel.visible = false;
     g.add(body, deck, led, ledBack, lidar, ...wheels, ...extra, tote, sel);
+    return this.finish(a, g, { led: ledMat, wheels, tote, sel });
+  }
+
+  // GLB 메인 AMR: 상태등 띠만 앞뒤 범퍼 위에 덧붙인다. 바퀴는 돌리지 않는다(가로 배율이 달라 돌리면 찌그러진다).
+  makeModel(a, g) {
+    const S = this.shared, M = this.model.userData;
+    const body = this.model.clone(true);
+    const ledMat = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: LED.park, emissiveIntensity: 1.6 });
+    const led = new THREE.Mesh(S.led, ledMat);
+    led.position.set(0, 0.42, (M.length ?? BODY.l) / 2 + 0.005);
+    const ledBack = led.clone();
+    ledBack.position.z = -led.position.z;
+    const tote = new THREE.Mesh(S.tote, S.toteMat);
+    tote.position.y = (M.deck ?? 1) + 0.17;
+    tote.visible = false;
+    const sel = new THREE.Mesh(S.ring, new THREE.MeshBasicMaterial({ color: 0x4fb3ff, transparent: true, opacity: 0.9, depthWrite: false }));
+    sel.rotation.x = -Math.PI / 2;
+    sel.position.y = 0.02;
+    sel.visible = false;
+    g.add(body, led, ledBack, tote, sel);
+    return this.finish(a, g, { led: ledMat, wheels: [], tote, sel });
+  }
+
+  finish(a, g, { led, wheels, tote, sel }) {
     g.traverse((o) => { if (o.isMesh && o !== sel) { o.castShadow = true; o.userData.amrId = a.id; } });
     this.root.add(g);
 
@@ -95,7 +125,7 @@ export class FleetView {
     line.frustumCulled = false;
     line.renderOrder = 3;
     this.root.add(line);
-    return { g, led: ledMat, wheels, tote, sel, line, dist: a.dist };
+    return { g, led, wheels, tote, sel, line, dist: a.dist };
   }
 
   update(dt, state, events) {

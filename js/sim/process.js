@@ -1,9 +1,11 @@
 // 셀 공정 정의(src/process.default.json) 점검·정규화. DOM·three 없음.
 // 정의는 가정값이다: 셀 로컬 작업 지점(m)·공정 순서·시간(s)·부품 치수. 형상(GLB)에서 뽑을 수 있는 값(레일·관절·롤러 위치)은 여기 두지 않는다.
 
-export const OPS = Object.freeze(['feed', 'transfer', 'path', 'dwell', 'unload']);
+export const OPS = Object.freeze(['feed', 'path', 'dwell']);
 // 키트 모델 놓는 자세: upright = 에셋 그대로(세움), face-up = 앞면이 위로(지그에 눕힘)
 export const LAYS = Object.freeze(['upright', 'face-up']);
+// 모델 맞춤: uniform = x·z 중 작은 쪽 배율(비율 유지), stretch = x·z 를 치수에 각각 맞춤
+export const FITS = Object.freeze(['uniform', 'stretch']);
 
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
 const pt = (p) => p && num(p.x) && num(p.y) && num(p.z);
@@ -13,10 +15,14 @@ const size3 = (s) => Array.isArray(s) && s.length === 3 && s.every((v) => num(v)
 export const stepTime = (step) => Math.max(0, ...step.map((op) => op.time));
 export const flowTime = (flow) => flow.steps.reduce((s, st) => s + stepTime(st), 0);
 
-// 키트 위 자리 → 작업 구역(스테이션 남쪽 s / 북쪽 n 반). 같은 반에서 두 로봇이 동시에 일하지 않는다.
-export const halfOf = (st, at) => `${st}${at[1] < 0 ? 's' : 'n'}`;
+// 키트 위 자리 → 작업 구역(리프트 위 키트의 서 w / 동 e × 남 s / 북 n 사분면). 같은 구역에서 두 로봇이 동시에 일하지 않는다.
+export const quadOf = (at) => `${at[0] < 0 ? 'w' : 'e'}${at[1] < 0 ? 's' : 'n'}`;
+export const QUADS = Object.freeze(['ws', 'wn', 'es', 'en']);
 
-// cycle: 시나리오 cycle({PRESS: 36…}). 주면 마지막 스테이션 흐름 합 = takt = cycle 을 본다.
+// 셀을 몇 번째로 들르는지: route 에서 k 번째 칸이 그 셀의 몇 번째 방문인지(0부터) = passes 번호.
+export const passOf = (route, k) => route.slice(0, k).filter((id) => id === route[k]).length;
+
+// cycle: 시나리오 cycle({PRESS: 28…}). 주면 셀 passes 합 = takt = cycle 을 본다.
 export function validateProcess(doc, { cycle = null } = {}) {
   const errors = [];
   if (!doc || typeof doc !== 'object') return ['공정 정의가 객체 아님'];
@@ -24,8 +30,12 @@ export function validateProcess(doc, { cycle = null } = {}) {
   if (!size3(doc.kit?.size)) errors.push('kit.size는 양수 3개');
   if (doc.kit?.model != null && typeof doc.kit.model !== 'string') errors.push('kit.model은 에셋 키(문자열)');
   if (doc.kit?.lay != null && !LAYS.includes(doc.kit.lay)) errors.push(`kit.lay는 ${LAYS.join('·')}`);
+  if (doc.kit?.fit != null && !FITS.includes(doc.kit.fit)) errors.push(`kit.fit은 ${FITS.join('·')}`);
+  if (doc.jig != null && !size3(doc.jig.size)) errors.push('jig.size는 양수 3개');
+  else if (doc.jig && size3(doc.kit?.size) && (doc.jig.size[0] < doc.kit.size[0] || doc.jig.size[2] < doc.kit.size[2])) errors.push('jig 는 도어트림보다 작을 수 없음(x·z)');
   if (!(doc.deck > 0)) errors.push('deck(AMR 적재면 높이)은 양수');
   const cells = doc.cells ?? {};
+  errors.push(...validateRoute(doc));
   const S = cells.SORT;
   if (S) {
     if (!Array.isArray(S.rack) || !S.rack.length || !S.rack.every(pt)) errors.push('SORT rack은 {x,y,z} 배열');
@@ -66,20 +76,37 @@ export function validateProcess(doc, { cycle = null } = {}) {
     if (!Number.isInteger(U.batch) || U.batch < 1 || U.batch > 4) errors.push('supply.batch는 1~4 정수(AMR 적재면 2×2칸)');
     if (!(U.top > 0)) errors.push('supply.top(부품 AMR 적재면 높이)은 양수');
   }
-  const unloads = Object.entries(cells).filter(([, C]) => C?.flow?.some((f) => f.steps?.some((st) => st?.some?.((op) => op?.do === 'unload'))));
-  if (unloads.length && !O) errors.push(`${unloads.map(([id]) => id).join('·')} 반출(unload)에는 cells.OUT 필요`);
   // 흐름 없는 셀: 지그 자리 옮김만
   for (const [id, C] of Object.entries(cells)) {
-    if (id === 'SORT' || id === 'OUT' || C?.flow || !C?.slots) continue;
+    if (id === 'SORT' || id === 'OUT' || C?.passes || !C?.slots) continue;
     if (!Array.isArray(C.slots) || !C.slots.length || !C.slots.every(pt)) errors.push(`${id} slots는 {x,y,z} 배열`);
     if (!(C.handoff > 0)) errors.push(`${id} handoff는 양수`);
   }
-  for (const id of Object.keys(cells)) if (cells[id]?.flow) errors.push(...validateWork(id, workDef(doc, id), cycle?.[id]));
+  for (const id of Object.keys(cells)) if (cells[id]?.passes) errors.push(...validateWork(id, workDef(doc, id), cycle?.[id]));
   return errors;
 }
 
-// 완료품 적재 구역 정의 + 공통 키트·적재면.
-export const outDef = (doc) => (doc?.cells?.OUT ? { ...doc.cells.OUT, kit: doc.kit, deck: doc.deck } : null);
+// 공정 순서: 분류 셀(rack 있는 셀)에서 시작해 OUT 으로 끝난다. 사이 칸은 리프트 셀(passes)이고, 셀마다 들르는 횟수 = passes 수.
+function validateRoute(doc) {
+  const R = doc.route, cells = doc.cells ?? {};
+  const work = Object.keys(cells).filter((id) => cells[id]?.passes);
+  if (R == null) return work.length ? ['route(공정 순서) 없음 — passes 있는 셀은 route 로 들른다'] : [];
+  if (!Array.isArray(R) || R.length < 3 || !R.every((id) => typeof id === 'string')) return ['route는 셀 id 3개 이상 배열'];
+  const errors = [];
+  if (!cells[R[0]]?.rack) errors.push(`route 첫 칸 ${R[0]} 은 분류 셀(rack)`);
+  if (R.at(-1) !== 'OUT' || !cells.OUT) errors.push('route 마지막 칸은 OUT(cells.OUT 필요)');
+  const mid = R.slice(1, -1);
+  for (const id of mid) if (!cells[id]?.passes) errors.push(`route 칸 ${id} 에 passes 없음`);
+  for (let i = 1; i < R.length; i++) if (R[i] === R[i - 1]) errors.push(`route 같은 셀 연속 ${R[i]}`);
+  for (const id of work) {
+    const n = mid.filter((x) => x === id).length, P = cells[id].passes;
+    if (Array.isArray(P) && n !== P.length) errors.push(`${id} route 방문 ${n}번 ≠ passes ${P.length}개`);
+  }
+  return errors;
+}
+
+// 완료품 적재 구역 정의 + 공통 키트·지그·적재면.
+export const outDef = (doc) => (doc?.cells?.OUT ? { ...doc.cells.OUT, kit: doc.kit, jig: doc.jig ?? null, deck: doc.deck } : null);
 export const supplyDef = (doc) => (doc?.supply ? { ...doc.supply, deck: doc.deck } : null);
 
 // SORT 부속 부품 분류(가정): 투입 이송기 → 컨베이어(바코드 스캔) → 레인 분기 → 레인 롤러 → 내림 이송기. 레인마다 목적 도크(셀:라인).
@@ -111,9 +138,10 @@ function validateWork(id, P, cycle) {
   if (cycle != null && P.takt !== cycle) E(`takt ${P.takt} ≠ 시나리오 cycle ${cycle}`);
   for (const k of ['clear', 'railGap']) if (!(P[k] > 0)) E(`${k}는 양수`);
   if (!(P.grip > 0 && P.grip <= 1)) E('grip은 0~1');
+  const T = P.lift;
+  if (!T || !num(T.x) || !num(T.z) || !(T.rise > 0) || !(T.up > 0) || !(T.down > 0)) E('lift {x, z, rise>0, up>0, down>0}');
   if (!size3(P.kit?.size)) return errors;
   const parts = P.parts ?? {};
-  const halves = new Set();
   for (const [name, p] of Object.entries(parts)) {
     if (!size3(p.size)) E(`부품 ${name} size`);
     if (!Array.isArray(p.at) || p.at.length < 2 || p.at.length > 3 || !p.at.every(num)) E(`부품 ${name} at은 [dx,dz] 또는 [dx,dz,dy]`);
@@ -123,14 +151,11 @@ function validateWork(id, P, cycle) {
       if ((p.at[2] ?? 0) > 0 || -(p.at[2] ?? 0) > P.kit.size[1]) E(`부품 ${name} dy는 -키트 높이~0`);
     }
   }
-  const st = P.stations ?? {};
-  for (const [n, s] of Object.entries(st)) if (!pt(s)) E(`스테이션 ${n}은 {x,y,z}`);
   const lines = new Map();
   for (const L of P.lines ?? []) {
     if (lines.has(L.id)) E(`라인 ${L.id} 중복`);
     lines.set(L.id, L);
     if (!parts[L.part]) E(`라인 ${L.id} 부품 ${L.part} 없음`);
-    if (!st[L.to]) E(`라인 ${L.id} 스테이션 ${L.to} 없음`);
     for (const k of ['x', 'in', 'out', 'y']) if (!num(L[k])) E(`라인 ${L.id} ${k}는 수`);
     if (!(L.pitch > 0 && L.speed > 0)) E(`라인 ${L.id} pitch·speed는 양수`);
     if (Math.abs(L.out - L.in) < L.pitch) E(`라인 ${L.id} 길이 < pitch`);
@@ -139,61 +164,47 @@ function validateWork(id, P, cycle) {
     if (!g || !num(g.stock) || !num(g.stockY) || !(g.up > 0) || !(g.time > 0)) E(`라인 ${L.id} gantry {stock,stockY,up,time}`);
     else if (Math.sign(L.in - g.stock) !== Math.sign(L.out - L.in)) E(`라인 ${L.id} 적재 지점이 투입 지점 바깥이 아님`);
   }
-  const H = P.handoff;
-  if (!H || typeof H.robot !== 'string' || !st[H.to] || !(H.time > 0)) E('handoff {robot,to,time}');
-  const flows = P.flow ?? [];
-  if (!flows.length) E('flow 없음');
+  const passes = P.passes ?? [];
+  if (!Array.isArray(passes) || !passes.length) { E('passes 없음'); return errors; }
   const fed = new Set();
-  flows.forEach((f, i) => {
-    if (!st[f.station]) E(`flow ${i} 스테이션 ${f.station} 없음`);
-    if (f.from && !st[f.from]) E(`flow ${i} from ${f.from} 없음`);
-    if (i === 0 && f.station !== H?.to) E('첫 flow 스테이션은 handoff.to');
-    if (i > 0 && f.from !== flows[i - 1].station) E(`flow ${i} from 은 앞 스테이션`);
-    if (!Array.isArray(f.steps) || !f.steps.length) { E(`flow ${i} steps 없음`); return; }
+  passes.forEach((f, i) => {
+    if (!Array.isArray(f?.steps) || !f.steps.length) { E(`pass ${i} steps 없음`); return; }
     f.steps.forEach((step, k) => {
-      if (!Array.isArray(step) || !step.length) { E(`flow ${i} 단계 ${k} 비었음`); return; }
+      if (!Array.isArray(step) || !step.length) { E(`pass ${i} 단계 ${k} 비었음`); return; }
       const robots = new Set(), zones = new Set();
       for (const op of step) {
-        if (!OPS.includes(op.do)) { E(`flow ${i} 단계 ${k} 모르는 작업 ${op.do}`); continue; }
-        if (!(op.time > 0)) E(`flow ${i} 단계 ${k} time은 양수`);
-        if (op.do === 'transfer' && (k !== 0 || !f.from)) E(`flow ${i} transfer는 from 있는 흐름의 첫 단계`);
-        if (op.do === 'unload') {
-          if (i !== flows.length - 1 || k !== f.steps.length - 1 || step.length !== 1) E(`flow ${i} unload는 마지막 흐름 마지막 단계에 혼자`);
-          const Y = op.yield;
-          if (Y != null && (typeof Y.robot !== 'string' || Y.robot === op.robot || !(Y.s > 0))) E(`flow ${i} unload yield {robot(다른 로봇), s>0}`);
-        }
+        if (!OPS.includes(op.do)) { E(`pass ${i} 단계 ${k} 모르는 작업 ${op.do}`); continue; }
+        if (!(op.time > 0)) E(`pass ${i} 단계 ${k} time은 양수`);
         if (op.do === 'feed') {
           const L = lines.get(op.line);
-          if (!L) { E(`flow ${i} 라인 ${op.line} 없음`); continue; }
-          if (L.to !== f.station) E(`라인 ${L.id} to ≠ ${f.station}`);
+          if (!L) { E(`pass ${i} 라인 ${op.line} 없음`); continue; }
           if (fed.has(L.id)) E(`라인 ${L.id} 두 번 투입`);
           fed.add(L.id);
-          if (robots.has(L.robot)) E(`flow ${i} 단계 ${k} 로봇 ${L.robot} 겹침`);
+          if (robots.has(L.robot)) E(`pass ${i} 단계 ${k} 로봇 ${L.robot} 겹침`);
           robots.add(L.robot);
-          const z = halfOf(f.station, parts[L.part]?.at ?? [0, 0]);
-          if (zones.has(z)) E(`flow ${i} 단계 ${k} 구역 ${z} 겹침`);
+          const z = quadOf(parts[L.part]?.at ?? [0, 0]);
+          if (zones.has(z)) E(`pass ${i} 단계 ${k} 구역 ${z} 겹침`);
           zones.add(z);
-        } else if (op.do !== 'dwell') {
-          if (typeof op.robot !== 'string') E(`flow ${i} 단계 ${k} ${op.do} robot`);
-          if (robots.has(op.robot)) E(`flow ${i} 단계 ${k} 로봇 ${op.robot} 겹침`);
+        } else if (op.do === 'path') {
+          if (typeof op.robot !== 'string') E(`pass ${i} 단계 ${k} path robot`);
+          if (robots.has(op.robot)) E(`pass ${i} 단계 ${k} 로봇 ${op.robot} 겹침`);
           robots.add(op.robot);
-          if (op.do === 'path' && (!Array.isArray(op.path) || op.path.length < 2 || !num(op.y))) E(`flow ${i} path 는 점 2개 이상 + y`);
+          if (!Array.isArray(op.path) || op.path.length < 2 || !num(op.y)) E(`pass ${i} path 는 점 2개 이상 + y`);
+          // 경로는 키트 네 구역을 다 잡는다 — 같은 단계에 다른 작업이 있으면 못 돈다
+          if (step.length > 1) E(`pass ${i} 단계 ${k} path 는 혼자`);
         }
       }
     });
   });
   for (const L of lines.values()) if (!fed.has(L.id)) E(`라인 ${L.id} 투입 단계 없음`);
-  // 사이클: 마지막 스테이션 흐름 합 = takt (병목). 앞 스테이션 흐름 + 하역 ≤ takt (안 그러면 병목이 앞으로 옮겨간다).
-  if (flows.length && P.takt > 0) {
-    const last = flowTime(flows.at(-1));
-    if (Math.abs(last - P.takt) > 1e-9) E(`${flows.at(-1).station} 단계 합 ${last}s ≠ takt ${P.takt}s`);
-    if (H && flowTime(flows[0]) + H.time > P.takt) E(`${flows[0].station} 단계 합 + 하역 ${flowTime(flows[0]) + H.time}s > takt`);
-  }
+  // 사이클: 셀이 키트 하나에 쓰는 로봇 작업 시간 = 모든 pass 단계 합 = takt (리프트 올림·내림 제외)
+  const sum = passes.reduce((s, f) => s + (Array.isArray(f?.steps) ? flowTime(f) : 0), 0);
+  if (P.takt > 0 && Math.abs(sum - P.takt) > 1e-9) E(`passes 단계 합 ${sum}s ≠ takt ${P.takt}s`);
   return errors;
 }
 
-// 셀 공정(스테이션 흐름 있는 셀) 정의 + 공통 키트·적재면.
-export const workDef = (doc, id) => (doc?.cells?.[id]?.flow ? { ...doc.cells[id], kit: doc.kit, deck: doc.deck } : null);
+// 리프트 셀(passes 있는 셀) 정의 + 공통 키트·지그·적재면.
+export const workDef = (doc, id) => (doc?.cells?.[id]?.passes ? { ...doc.cells[id], kit: doc.kit, jig: doc.jig ?? null, deck: doc.deck } : null);
 
 export function normalizeProcess(doc, opts) {
   const errors = validateProcess(doc, opts);

@@ -97,9 +97,10 @@ check('스탬프에 AMR 경로 포함', layoutStamp(base) !== layoutStamp({ ...b
     && Object.keys(base.parts.cells).length === 10 && !!base.parts.cells['PRESS:L01'] && !!base.parts.cells.PARTS
     && base.parts.cells['SORT:IN']?.exit === null && base.parts.cells['SORT:IN'].stops.length === 1);
   check('SORT 도어트림 정지점 7: 대기 2 · 레인 A–D · 듀얼', base.amr.cells.SORT.stops.length === 7);
-  check('도어트림 루트에는 부품 도크가 없다(완료품 동쪽 도크·SORT 뒤쪽 입고는 있음)',
+  check('도어트림 루트에는 부품 도크가 없다 · PRESS·SCREW 는 통과 리프트 셀(따로 반출 도크 없음) · SORT 뒤쪽 입고는 있음',
     !Object.keys(base.amr.cells).some((id) => id === 'PARTS' || id === 'SORT:IN' || id.includes(':L'))
-    && !!base.amr.cells['PRESS:OUT'] && !!base.amr.cells['SCREW:OUT'] && !!base.amr.cells['SORT:RAW']);
+    && !base.amr.cells['PRESS:OUT'] && !base.amr.cells['SCREW:OUT'] && !!base.amr.cells['SORT:RAW']
+    && ['PRESS', 'SCREW'].every((id) => base.amr.cells[id].stops.length === 1 && !!base.amr.cells[id].exit));
   const old = JSON.parse(JSON.stringify(base));
   delete old.parts; delete old.sites.PARTS;
   const n = normalizeLayout(old);

@@ -1,13 +1,14 @@
-// 셀 안 공정: 스테이션 흐름 · 로봇 집기/놓기 · 작업 구역 잠금 · 갠트리(직교이송) 공급 · 롤러 적재 컨베이어 · AMR 하역 핸드셰이크. DOM·three 없음.
+// 셀 안 공정: 작업대 리프트 · pass(셀 방문) 단계 · 로봇 집기/놓기 · 작업 구역 잠금 · 갠트리(직교이송) 공급 · 롤러 적재 컨베이어. DOM·three 없음.
+// 리프트(가정): 메인 AMR 이 AMR_MAIN_JIG 자리에 서면 클립이 도어트림 지그를 물고 rise 만큼 들어 올린다 → AMR 은 그 밑으로 직진해 빠진다.
+// 지그가 뜬 채 그 방문(pass)의 단계를 돌고, 받으러 온 메인 AMR 위로 내려 안착시킨다. 로봇은 키트를 AMR 에서 집지 않는다.
 // 부품 AMR 토트 모드: 상자를 팔레트에 덤프 → 직교이송이 상자를 롤러에 올림 → 롤러가 당김 → 협동로봇이 상자에서 부품을 집음.
 // 좌표는 셀 로컬(m). 시간·순서는 정의(process.default.json)와 시뮬 시간만 따른다 — GLB 기구(rig)를 붙여도 공정 시각은 같다(결정론).
 // rig 를 붙이면 로봇 관절각(IK)과 TCP 가 생기고, 집힌 물건은 TCP 를 따라간다. 없으면 작업 지점 사이 직선 보간.
-// 이 모듈은 시뮬 안의 셀 동작 모델이다. 실제 셀의 실시간 제어(로봇·서보)는 셀 PLC 몫이고 OCS 는 수집·감독·재계획만 한다.
+// 이 모듈은 시뮬 안의 셀 동작 모델이다. 실제 셀의 실시간 제어(로봇·서보·리프트)는 셀 PLC 몫이고 OCS 는 수집·감독·재계획만 한다.
 import { chainOf, fk, ik, lerpPose, reach } from './kin.js';
-import { halfOf } from './process.js';
+import { QUADS, flowTime, quadOf } from './process.js';
 
 const smooth = (u) => u * u * (3 - 2 * u);
-const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const lerp3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 const up = (p, d) => [p[0], p[1] + d, p[2]];
 const baseName = (n) => String(n ?? '').replace(/\.\d+$/, '');
@@ -15,48 +16,44 @@ const baseName = (n) => String(n ?? '').replace(/\.\d+$/, '');
 // 집기·놓기 키 프레임(작업 시간 비율). 준비 → 집기 위 → 집기 → (물기) → 들기 → 준비(접고 돈다) → 놓기 위 → 놓기 → (압입·풀기) → 들기 → 준비.
 // 가운데 준비 자세(투입 작업만): 팔을 편 채 반 바퀴 돌면 TCP 가 너무 빠르고 이웃 구역을 쓸고 지나가서, 접은 자세로 돈다.
 export const PICK = Object.freeze({ grip: 0.3, lift: 0.38, drop: 0.8 });
-const PP = [['R', 0], ['A0', 0.16], ['P0', 0.24], ['P0', PICK.grip], ['A0', PICK.lift], ['R', 0.56], ['A1', 0.64], ['P1', 0.7], ['P1', PICK.drop], ['A1', 0.88], ['R', 1]];
+const PP = [['R', 0], ['A0', 0.16], ['P0', 0.24], ['P0', PICK.grip], ['A0', PICK.lift], ['R', 0.56], ['A1', 0.66], ['P1', 0.72], ['P1', PICK.drop], ['A1', 0.88], ['R', 1]];
 // 갠트리: (가로 위치, 패드 밑면 높이) 키 프레임. 적재 팔레트에서 하나 들어 라인 투입 칸에 내린다.
 export const FEED = Object.freeze({ grip: 0.44, away: 0.76, drop: 0.9 });
 // 준비 자세: 베이스 위 0.75 m, CAD 공구 쪽으로 0.55 m.
 export const READY = Object.freeze({ up: 0.75, out: 0.55 });
-// 반출: 마지막 스테이션 → 도크 AMR 적재면. 앞 스테이션 위를 지나가므로, 두 스테이션 사이 틈(E)에서 그 작업 구역 높이 위로
-// CARRY 만큼 올라 건너편(W)까지 수평으로 가고 도크로 내린다. 키 시각은 PRESS·SCREW rig 경로 길이 비율에 맞춘 값이다.
-// 동쪽 도크 AMR 은 heading −π/2 라 키트 yaw 가 스테이션(0)과 π 차이 — 집기~놓기 동안 보간한다(스텝당 점프 방지).
-// 도크 로봇이 마지막 스테이션까지 레일을 타야 해서, 사이 로봇(yield)이 그동안 반대쪽으로 비켜선다.
-export const OUT = Object.freeze({ grip: 0.35, drop: 0.8, release: 0.85, carry: 0.08 });
-const UP = [['R', 0], ['A0', 0.25], ['P0', 0.3], ['P0', OUT.grip], ['A0', 0.4], ['E', 0.45], ['W', 0.57], ['A1', 0.7], ['P1', 0.75], ['P1', OUT.drop], ['A1', OUT.release], ['R', 1]];
+// 리프트: 올림(내림) 시간 중 클립이 물고(푸는) 비율. 올림 = 클립 물기 → 들기(끝나면 AMR 출발), 내림 = 내리기(AMR 에 안착) → 클립 풀기.
+export const LIFT = Object.freeze({ clamp: 0.3 });
+// 반출 배차를 미리 거는 시각: 이 pass 남은 시간이 이 아래면(초, 가정 — 충전 자리에서 셀까지 주행 시간 정도)
+export const PRE = 20;
 
 export class CellWork {
   constructor(id, P, parts) {
     this.id = id;
     this.P = P;
     this.parts = parts;
-    this.kitH = P.kit.size[1];
+    this.jigH = P.jig?.size[1] ?? 0;
+    this.kitH = P.kit.size[1] + this.jigH;   // 지그 + 도어트림 한 덩어리(키트 엔티티 h)
+    this.foot = P.jig ? [Math.max(P.kit.size[0], P.jig.size[0]), Math.max(P.kit.size[2], P.jig.size[2])] : [P.kit.size[0], P.kit.size[2]];
     this.grip = P.grip;
-    this.done = 0;
-    this.ticket = null;
-    this.out = null;            // 반출 티켓(도크에 선 빈 AMR)
-    this.reserved = null;       // 투입 예약한 AMR id (첫 스테이션이 비었을 때만 한 대)
-    this.dock = null;           // 서쪽 투입 도크(셀 로컬 {x,z}) — Plant 가 레이아웃에서 넣는다
-    this.outDock = null;        // 동쪽 반출 도크(셀 로컬 {x,z}) — 없으면 투입 도크를 같이 씀
-    this.locks = {};            // 구역 → 로봇 이름
+    this.done = 0;              // 끝낸 pass 수(방문 수)
+    this.passDone = P.passes.map(() => 0);
+    this.ticket = null;         // 투입 티켓(지그 실은 AMR 이 리프트 자리에 섬)
+    this.out = null;            // 반출 티켓(빈 AMR 이 리프트 밑에 섬)
+    this.reserved = null;       // 투입 예약한 AMR id (리프트가 비었을 때만 한 대)
+    this.dock = null;           // 리프트 정차 칸(셀 로컬 {x,z}) — Plant 가 레이아웃에서 넣는다
+    this.locks = Object.fromEntries(QUADS.map((q) => [q, null]));   // 구역 → 로봇 이름
     this.lockFaults = 0;        // 잠금 규칙 위반(두 로봇이 같은 구역) — 0 이어야 한다
     this.intrude = 0;           // 잠금 없이 구역 작업 높이 안에 들어간 TCP 스텝 수 — rig 있을 때만 셀 수 있다
     this.rig = null;
     this.toteFeed = false;      // 부품 AMR 토트: 상자를 그대로 덤프·직교이송·롤러 → 협동로봇이 상자에서 집음
     this.cache = new Map();
-    this.stations = {};
-    for (const [name, p] of Object.entries(P.stations)) {
-      this.stations[name] = { name, p: [p.x, p.y, p.z], kit: null, phase: 'empty', flow: null, stepI: 0, run: null, el: 0 };
-      for (const z of ['s', 'n']) this.locks[name + z] = null;
-    }
-    this.locks.dock = null;
-    this.locks.outdock = null;
-    P.flow.forEach((f, i) => { const S = this.stations[f.station]; S.flow = f; S.last = i === P.flow.length - 1; });
+    const T = P.lift;
+    this.top = P.deck + T.rise;             // 든 지그 밑면 높이
+    this.p = [T.x, this.top, T.z];          // 작업 자리(든 지그 밑면 중심)
+    this.lift = { kit: null, phase: 'empty', pass: 0, stepI: 0, run: null, el: 0, t: 0, y: P.deck, clamp: 0 };
+    this.passTime = P.passes.map((f) => flowTime(f));
     this.robots = {};
-    this.unloadOp = P.flow.at(-1).steps.at(-1).find((op) => op.do === 'unload') ?? null;
-    const names = [P.handoff.robot, ...P.lines.map((L) => L.robot), ...P.flow.flatMap((f) => f.steps.flat().flatMap((op) => [op.robot, op.yield?.robot]).filter(Boolean))];
+    const names = [...P.lines.map((L) => L.robot), ...P.passes.flatMap((f) => f.steps.flat().map((op) => op.robot).filter(Boolean))];
     for (const n of names) this.robots[n] ??= { name: n, ch: null, ready: null, pose: null, tcp: null, op: null, label: '대기' };
     this.lines = P.lines.map((L) => {
       const part = P.parts[L.part];
@@ -97,7 +94,6 @@ export class CellWork {
       if (r.op) r.op.Q = null;
       report.robots.push(r.name);
     }
-    this.outChain(rig);
     for (const L of this.lines) {
       const g = rig.gantries
         .filter((G) => Math.abs(G.horiz[2]) > 0.9 && Math.abs(G.origin[0] - L.x) < 0.8 && G.travel[0] - 0.1 <= Math.min(L.in, L.feed.stock) && G.travel[1] + 0.1 >= Math.max(L.in, L.feed.stock))
@@ -134,77 +130,61 @@ export class CellWork {
     return { lo: Math.min(0, lo), hi: Math.max(0, hi) };
   }
 
-  // 반출 로봇 레일 범위: 사이 로봇이 yield.s 만큼 비켜선 자리에서 railGap 띄운 데까지(반출 작업 동안만 쓴다).
-  outChain(rig) {
-    const U = this.unloadOp;
-    if (!U) return;
-    const r = this.robots[U.robot], Y = U.yield ? this.robots[U.yield.robot] : null;
-    r.chOut = null;
-    if (!r.ch || !r.track || !rig.tracks[r.arm.track]) return;
-    const T = rig.tracks[r.arm.track], ax = T.axis, along = (p) => p[0] * ax[0] + p[1] * ax[1] + p[2] * ax[2];
-    const me = along(r.arm.joints[0].origin);
-    let hi = along(T.origin) + T.span - 0.3 - me;
-    if (Y?.arm) {
-      Y.yieldS = Math.min(U.yield.s, Y.track?.hi ?? U.yield.s);
-      hi = Math.min(hi, along(Y.arm.joints[0].origin) + Y.yieldS - me - this.P.railGap);
-    }
-    r.chOut = chainOf(r.arm, { track: { axis: ax, lo: r.track.lo, hi: Math.max(r.track.hi, hi) } });
+  // 시작 재고: 든 리프트에 키트 하나(첫 pass 작업 시작 상태). spec: Plant 의 키트 엔티티 속성.
+  seed(spec) {
+    const Lf = this.lift;
+    if (Lf.kit) return null;
+    Lf.kit = this.parts.add('kit', { k: 'lift', cell: this.id }, spec);
+    Object.assign(Lf, { phase: 'work', pass: 0, stepI: 0, run: null, el: 0, y: this.top, clamp: 1 });
+    return Lf.kit;
   }
 
-  // 시작 재고: 첫 스테이션에 키트 하나(작업 시작 상태).
-  seed() {
-    const S = this.stations[this.P.handoff.to];
-    if (S.kit) return null;
-    S.kit = this.parts.add('kit', { k: 'station', cell: this.id, st: S.name }, { size: this.P.kit.size, h: this.kitH, color: this.P.kit.color, model: this.P.kit.model ?? null, lay: this.P.kit.lay ?? null });
-    S.phase = 'work'; S.stepI = 0; S.run = null; S.el = 0;
-    return S.kit;
-  }
-
-  // ── AMR 하역 핸드셰이크: 도착 → (canAccept) → offer → 로봇이 집어 든 뒤 released → AMR 출발 → 놓음 ──
+  // ── 투입 핸드셰이크: 지그 실은 AMR 이 리프트 자리에 섬 → offer → 클립이 물고 들어 올리면 released → AMR 직진 출발 ──
   canAccept(down) {
-    const S = this.stations[this.P.handoff.to];
-    return !down && !this.ticket && S.phase === 'empty' && !S.kit;
+    const Lf = this.lift;
+    return !down && !this.ticket && !this.out && Lf.phase === 'empty' && !Lf.kit;
   }
 
-  offer(kit, from, at) {
-    this.ticket = { kit, from, at: [at.x, at.z], gripped: false, released: false, started: false };
-    this.stations[this.P.handoff.to].phase = 'incoming';
+  // pass: 이 키트가 이 셀에서 할 방문 번호(route 로 Plant 가 정한다)
+  offer(kit, from, at, pass = 0) {
+    this.ticket = { kit, from, at: [at.x, at.z], pass: Math.min(pass, this.P.passes.length - 1), started: true, gripped: false, released: false };
+    this.reserved = null;
+    Object.assign(this.lift, { phase: 'rise', t: 0 });
     return this.ticket;
   }
 
-  // 레이아웃 변경 등으로 AMR 이 사라질 때. 아직 안 집었으면 되돌리고, 집었으면 셀이 가진다.
+  // 레이아웃 변경 등으로 AMR 이 사라질 때. 클립이 아직 안 물었으면 되돌리고, 물었으면 셀이 가진다(true).
   cancel(ticket) {
     if (this.ticket !== ticket) return false;
-    if (ticket.started) { ticket.orphan = true; return true; }
+    if (ticket.gripped) { ticket.orphan = true; return true; }
     this.ticket = null;
-    this.stations[this.P.handoff.to].phase = 'empty';
+    Object.assign(this.lift, { phase: 'empty', t: 0, clamp: 0, y: this.P.deck });
     return false;
   }
 
-  // ── 반출 핸드셰이크: 빈 AMR 이 도크에 서면 offerOut → 로봇이 완료품을 적재면에 놓고 들면 released → AMR 출발 ──
-  lastStation() { return this.stations[this.P.flow.at(-1).station]; }
-
-  // 곧 반출(마지막 스테이션이 반출 앞 단계 이상) — 배차를 미리 건다
-  outSoon() {
-    const S = this.lastStation();
-    return !!this.unloadOp && !this.out && S.phase === 'work' && S.stepI >= S.flow.steps.length - 2 && !!S.kit;
+  // ── 반출 핸드셰이크: 빈 AMR 이 리프트 밑에 서면 offerOut → 지그를 내려 안착시키고 클립을 풀면 released → AMR 출발 ──
+  remaining() {
+    const Lf = this.lift;
+    return Lf.phase === 'work' ? Math.max(0, this.passTime[Lf.pass] - Lf.el) : Lf.phase === 'done' ? 0 : Infinity;
   }
 
-  outReady() {
-    const S = this.lastStation();
-    return !!this.unloadOp && !this.out && S.phase === 'work' && S.stepI === S.flow.steps.length - 1 && !!S.kit;
-  }
+  // 곧 반출(이 pass 남은 시간 ≤ PRE) — 배차를 미리 건다
+  outSoon() { return !this.out && !!this.lift.kit && this.remaining() <= PRE; }
 
-  offerOut(to, at, yaw = 0) {
-    this.out = { to, at: [at.x, at.z], yaw, kit: null, started: false, loaded: false, released: false, cancel: false };
+  outReady() { return !this.out && this.lift.phase === 'done' && !!this.lift.kit; }
+
+  offerOut(to, at) {
+    this.out = { to, at: [at.x, at.z], kit: this.lift.kit, started: true, loaded: false, released: false, cancel: false };
+    Object.assign(this.lift, { phase: 'lower', t: 0 });
     return this.out;
   }
 
-  // AMR 이 사라질 때. 로봇이 아직 안 움직였으면 티켓을 거두고, 움직였으면 놓을 때 완료품을 치운다.
+  // AMR 이 사라질 때. 아직 안 내려놨으면 다시 든 채 기다리고, 내려놨으면(AMR 몫) 리프트는 빈다.
   cancelOut(T) {
     if (this.out !== T) return;
-    if (T.started) T.cancel = true;
-    else this.out = null;
+    this.out = null;
+    if (T.loaded) return;
+    Object.assign(this.lift, { phase: 'done', t: 0, y: this.top, clamp: 1 });
   }
 
   // ── 진행 ──
@@ -212,8 +192,8 @@ export class CellWork {
     if (down) return;
     this.runLines(h);
     this.runGantries(h);
-    this.runHandoff();
-    for (const f of this.P.flow) this.runStation(this.stations[f.station], h);
+    this.runLift(h);
+    this.runPass(h);
     for (const r of Object.values(this.robots)) this.runRobot(r, h);
     this.audit();
   }
@@ -331,73 +311,86 @@ export class CellWork {
     this.restock(L);
   }
 
-  runHandoff() {
+  // 리프트 올림·내림. 소유 이동은 클립이 문 순간(올림) · 안착한 순간(내림)에 한 번 — 그때 위치가 같다(AMR 적재면 = 리프트 밑 높이).
+  runLift(h) {
+    const Lf = this.lift, D = this.P.lift, deck = this.P.deck, c = LIFT.clamp;
+    const holder = { k: 'lift', cell: this.id };
     const T = this.ticket;
-    if (!T || T.started) return;
-    const H = this.P.handoff, r = this.robots[H.robot], S = this.stations[H.to];
-    const zones = ['dock', `${H.to}s`, `${H.to}n`];
-    if (r.op || !this.free(zones, r)) return;
-    T.started = true;
-    const kitHolder = T.from;
-    const P0 = [T.at[0], this.P.deck + this.kitH * (1 - this.grip), T.at[1]];
-    const P1 = up(S.p, this.kitH * (1 - this.grip));
-    const robotH = { k: 'robot', cell: this.id, r: r.name };
-    this.startOp(r, {
-      label: `${this.id} 하역(${H.to})`, time: H.time, zones,
-      keys: this.pickKeys(P0, P1),
-      events: [
-        { t: PICK.grip, fn: () => { this.parts.hold(T.kit, robotH, kitHolder); T.gripped = true; } },
-        { t: PICK.lift, fn: () => { T.released = true; } },
-        { t: PICK.drop, fn: () => { this.parts.hold(T.kit, { k: 'station', cell: this.id, st: S.name }, robotH); S.kit = T.kit; } },
-      ],
-      end: () => { S.phase = 'work'; S.stepI = 0; S.run = null; S.el = 0; this.ticket = null; },
-    });
+    if (Lf.phase === 'rise' && T) {
+      Lf.t += h;
+      const f = Math.min(1, Lf.t / D.up);
+      Lf.clamp = smooth(Math.min(1, f / c));
+      if (!T.gripped && f >= c - 1e-9) { this.parts.hold(T.kit, holder, T.from); T.gripped = true; Lf.kit = T.kit; }
+      Lf.y = deck + D.rise * smooth(Math.max(0, (f - c) / (1 - c)));
+      if (f >= 1) {
+        T.released = true;
+        this.ticket = null;
+        Object.assign(Lf, { phase: 'work', pass: T.pass, stepI: 0, run: null, el: 0, y: this.top, clamp: 1 });
+      }
+      return;
+    }
+    const O = this.out;
+    if (Lf.phase === 'lower' && O) {
+      Lf.t += h;
+      const f = Math.min(1, Lf.t / D.down), k = 1 - c;
+      Lf.y = this.top - D.rise * smooth(Math.min(1, f / k));
+      if (!O.loaded && f >= k - 1e-9) {
+        if (O.cancel) this.parts.remove(Lf.kit);
+        else this.parts.hold(Lf.kit, O.to, holder);
+        O.loaded = true;
+        Lf.kit = null;
+      }
+      Lf.clamp = 1 - smooth(Math.max(0, (f - k) / c));
+      if (f >= 1) {
+        O.released = true;
+        this.out = null;
+        Object.assign(Lf, { phase: 'empty', t: 0, y: deck, clamp: 0 });
+      }
+    }
   }
 
   // 한 스텝 안에서 단계가 끝나면 바로 다음 단계를 시작한다(단계 사이에 스텝을 잃지 않게 — 사이클 합이 정의와 같도록).
-  runStation(S, h) {
-    const f = S.flow;
+  runPass(h) {
+    const Lf = this.lift;
     for (let guard = 0; guard < 8; guard++) {
-      if (S.phase === 'empty' && f.from && !S.kit && this.stations[f.from].phase === 'done') { S.phase = 'work'; S.stepI = 0; S.run = null; S.el = 0; }
-      if (S.phase !== 'work') return;
-      S.run ??= f.steps[S.stepI].map((op) => ({ op, state: 'wait', el: 0 }));
-      for (const j of S.run) if (j.state === 'wait') this.tryStart(S, j);
-      if (!S.run.every((j) => j.state === 'done')) break;
-      S.stepI++; S.run = null;
-      if (S.stepI < f.steps.length) continue;
-      if (S.last) {
-        if (S.kit) this.parts.remove(S.kit);
-        S.kit = null; S.phase = 'empty';
-        this.done++;
-      } else S.phase = 'done';
+      if (Lf.phase !== 'work') return;
+      const f = this.P.passes[Lf.pass];
+      Lf.run ??= f.steps[Lf.stepI].map((op) => ({ op, state: 'wait', el: 0 }));
+      for (const j of Lf.run) if (j.state === 'wait') this.tryStart(j);
+      if (!Lf.run.every((j) => j.state === 'done')) break;
+      Lf.stepI++; Lf.run = null;
+      if (Lf.stepI < f.steps.length) continue;
+      Lf.phase = 'done';
+      this.done++;
+      this.passDone[Lf.pass]++;
     }
-    if (S.phase !== 'work') return;
-    S.el += h;
-    for (const j of S.run ?? []) if (j.state === 'dwell') { j.el += h; if (j.el >= j.op.time - 1e-9) j.state = 'done'; }
+    if (Lf.phase !== 'work') return;
+    Lf.el += h;
+    for (const j of Lf.run ?? []) if (j.state === 'dwell') { j.el += h; if (j.el >= j.op.time - 1e-9) j.state = 'done'; }
   }
 
-  tryStart(S, j) {
-    const op = j.op, kitH = this.kitH, g = this.grip;
+  tryStart(j) {
+    const op = j.op, kitH = this.kitH, g = this.grip, kit = this.lift.kit, S = this.p;
     if (op.do === 'dwell') { j.state = 'dwell'; j.el = 0; return; }
+    if (!kit) return;
     if (op.do === 'feed') {
       const L = this.lineOf[op.line], r = this.robots[L.robot];
       let e = L.items[0];
       if (e?.type === 'tote' && !(e.n > 0)) { L.items.shift(); this.parts.remove(e); e = L.items[0]; }
-      if (r.op || !e || e.holder.s < L.len - 1e-9 || !S.kit) return;
-      const at = this.P.parts[L.part].at, zones = [halfOf(S.name, at)];
+      if (r.op || !e || e.holder.s < L.len - 1e-9) return;
+      const at = this.P.parts[L.part].at, zones = [quadOf(at)];
       if (!this.free(zones, r)) return;
       const robotH = { k: 'robot', cell: this.id, r: r.name };
-      const kit = S.kit;
       const tote = e.type === 'tote';
       const part = tote ? this.newPart(L, { k: 'tote', tote: e.id, at: [0, 0, 0] }) : e;
       const P0 = tote
         ? [L.x, L.y + 0.04 + L.h * (1 - g), L.out]
         : [L.x, L.y + e.h * (1 - g), L.out];
-      const P1 = [S.p[0] + at[0], S.p[1] + kitH + (at[2] ?? 0) + L.h * (1 - g), S.p[2] + at[1]];
+      const P1 = [S[0] + at[0], S[1] + kitH + (at[2] ?? 0) + L.h * (1 - g), S[2] + at[1]];
       const from = tote ? { k: 'tote', tote: e.id } : e.holder;
       j.state = 'run';
       this.startOp(r, {
-        label: `${L.part} ${L.id}→${S.name}`, time: op.time, zones, keys: this.pickKeys(P0, P1, true),
+        label: `${L.part} ${L.id}→지그`, time: op.time, zones, keys: this.pickKeys(P0, P1, true),
         events: [
           { t: PICK.grip, fn: () => {
             this.parts.hold(part, robotH, from);
@@ -415,58 +408,10 @@ export class CellWork {
     }
     const r = this.robots[op.robot];
     if (r.op) return;
-    if (op.do === 'unload') {
-      const T = this.out, Y = op.yield ? this.robots[op.yield.robot] : null;
-      const zones = [`${S.name}s`, `${S.name}n`, this.outDock ? 'outdock' : 'dock'];
-      if (!T || T.started || !S.kit || Y?.op || !this.free(zones, r)) return;
-      T.started = true;
-      j.state = 'run';
-      if (Y) {
-        const s = Y.yieldS ?? op.yield.s;
-        this.startOp(Y, {
-          label: `비켜섬(${r.name} 반출)`, time: op.time, zones: [], events: [],
-          keys: [{ t: 0, p: null }, { t: 0.1, p: null, s }, { t: 0.9, p: null, s }, { t: 1, p: null }],
-        });
-      }
-      const kit = S.kit, robotH = { k: 'robot', cell: this.id, r: r.name };
-      const P0 = up(S.p, kitH * (1 - g)), P1 = [T.at[0], this.P.deck + kitH * (1 - g), T.at[1]];
-      this.startOp(r, {
-        label: op.label ?? `${S.name} 반출`, time: op.time, zones, ch: r.chOut ?? null,
-        keys: this.outKeys(P0, P1), yaw0: 0, yaw1: T.yaw ?? 0,
-        events: [
-          { t: OUT.grip, fn: () => { this.parts.hold(kit, robotH, { k: 'station', cell: this.id, st: S.name }); S.kit = null; T.kit = kit; } },
-          { t: OUT.drop, fn: () => {
-            if (T.cancel) { this.parts.remove(kit); return; }
-            this.parts.hold(kit, T.to, robotH); T.loaded = true;
-          } },
-          { t: OUT.release, fn: () => { T.released = true; } },
-        ],
-        end: () => { j.state = 'done'; this.out = null; },
-      });
-      return;
-    }
-    if (op.do === 'transfer') {
-      const F = this.stations[S.flow.from];
-      if (!F.kit) return;
-      const zones = [`${F.name}s`, `${F.name}n`, `${S.name}s`, `${S.name}n`];
-      if (!this.free(zones, r)) return;
-      const kit = F.kit, robotH = { k: 'robot', cell: this.id, r: r.name };
-      j.state = 'run';
-      this.startOp(r, {
-        label: `키트 ${F.name}→${S.name}`, time: op.time, zones,
-        keys: this.pickKeys(up(F.p, kitH * (1 - g)), up(S.p, kitH * (1 - g))),
-        events: [
-          { t: PICK.grip, fn: () => { this.parts.hold(kit, robotH, { k: 'station', cell: this.id, st: F.name }); F.kit = null; F.phase = 'empty'; } },
-          { t: PICK.drop, fn: () => { this.parts.hold(kit, { k: 'station', cell: this.id, st: S.name }, robotH); S.kit = kit; } },
-        ],
-        end: () => { j.state = 'done'; },
-      });
-      return;
-    }
     if (op.do === 'path') {
-      const zones = [`${S.name}s`, `${S.name}n`];
-      if (!S.kit || !this.free(zones, r)) return;
-      const pts = op.path.map(([dx, dz]) => [S.p[0] + dx, op.y, S.p[2] + dz]);
+      const zones = [...QUADS];
+      if (!this.free(zones, r)) return;
+      const pts = op.path.map(([dx, dz]) => [S[0] + dx, op.y, S[2] + dz]);
       const n = pts.length, keys = [{ t: 0, p: null }, { t: 0.14, p: up(pts[0], this.P.clear) }];
       pts.forEach((p, i) => keys.push({ t: 0.22 + (0.6 * i) / (n - 1), p }));
       keys.push({ t: 0.9, p: up(pts[n - 1], this.P.clear) }, { t: 1, p: null });
@@ -479,16 +424,6 @@ export class CellWork {
   pickKeys(P0, P1, tuck = false) {
     const c = this.P.clear, pts = { A0: up(P0, c), P0, A1: up(P1, c), P1 };
     return PP.filter(([k, t]) => tuck || !(k === 'R' && t > 0 && t < 1)).map(([k, t]) => ({ t, p: k === 'R' ? null : pts[k], mid: k === 'R' && t > 0 && t < 1 }));
-  }
-
-  // 스테이션은 셀 x 축으로 늘어서 있다고 본다(PRESS·SCREW). 건너는 스테이션 = 마지막 스테이션과 도크 사이.
-  outKeys(P0, P1) {
-    const c = this.P.clear, kx = this.P.kit.size[0] / 2 + 0.1, u = Math.sign(P1[0] - P0[0]) || -1;
-    const over = Object.values(this.stations).filter((S) => (S.p[0] - P0[0]) * u > 1e-6 && (P1[0] - S.p[0]) * u > 1e-6);
-    const hy = Math.max(P0[1] + c, ...over.map((S) => S.p[1] + this.kitH + c + 0.06 + OUT.carry));
-    const far = over.length ? over.reduce((a, S) => ((S.p[0] - a.p[0]) * u > 0 ? S : a)).p[0] + u * (kx + 0.05) : P0[0] + u * kx * 2;
-    const pts = { A0: up(P0, c), P0, A1: up(P1, c), P1, E: [P0[0] + u * kx, hy, P0[2]], W: [far, hy, P0[2]] };
-    return UP.map(([k, t]) => ({ t, p: k === 'R' ? null : pts[k] }));
   }
 
   // ── 구역 잠금: 작업 시작에 한 번에 잡고 끝에 푼다 ──
@@ -518,11 +453,6 @@ export class CellWork {
     op.el += h;
     const f = op.el >= op.time - 1e-9 ? 1 : op.el / op.time;
     this.poseAt(r, op, f);
-    if (op.yaw0 != null && op.yaw1 != null) {
-      const t0 = OUT.grip, t1 = OUT.drop;
-      const u = f <= t0 ? 0 : f >= t1 ? 1 : smooth((f - t0) / (t1 - t0));
-      op.kitYaw = op.yaw0 + wrap(op.yaw1 - op.yaw0) * u;
-    }
     while (op.ei < op.events.length && op.events[op.ei].t <= f + 1e-12) op.events[op.ei++].fn();
     if (f >= 1) this.endOp(r);
   }
@@ -581,8 +511,8 @@ export class CellWork {
   local(e) {
     const H = e.holder;
     switch (H.k) {
-      case 'station': return this.stations[H.st].p.slice();
-      case 'robot': { const t = this.robots[H.r].tcp; return t ? [t[0], t[1] - e.h * (1 - this.grip), t[2], this.robots[H.r].op?.kitYaw ?? 0] : null; }
+      case 'lift': return [this.p[0], this.lift.y, this.p[2], 0];
+      case 'robot': { const t = this.robots[H.r].tcp; return t ? [t[0], t[1] - e.h * (1 - this.grip), t[2], 0] : null; }
       case 'gantry': { const L = this.lineOf[H.line]; return [L.x, L.gantry.y - e.h, L.gantry.z]; }
       case 'line': { const L = this.lineOf[H.line]; return [L.x, L.y, L.in + L.dir * H.s]; }
       case 'stock': { const L = this.lineOf[H.line]; return [L.x, L.feed.stockY, L.feed.stock]; }
@@ -590,18 +520,11 @@ export class CellWork {
     }
   }
 
-  // ── 점검: 잠금 없이 작업 구역(스테이션 반·도크) 작업 높이 안에 들어온 TCP ──
+  // ── 점검: 잠금 없이 작업 구역(든 지그 위 사분면) 작업 높이 안에 들어온 TCP ──
   zoneBoxes() {
-    const out = [];
-    const [kx, , kz] = this.P.kit.size, m = 0.05, top = this.kitH + this.P.clear + 0.06;
-    for (const S of Object.values(this.stations)) {
-      const [x, y, z] = S.p;
-      out.push({ zone: `${S.name}s`, x0: x - kx / 2 - m, x1: x + kx / 2 + m, z0: z - kz / 2 - m, z1: z, y1: y + top });
-      out.push({ zone: `${S.name}n`, x0: x - kx / 2 - m, x1: x + kx / 2 + m, z0: z, z1: z + kz / 2 + m, y1: y + top });
-    }
-    if (this.dock) out.push({ zone: 'dock', x0: this.dock.x - 0.6, x1: this.dock.x + 0.6, z0: this.dock.z - 0.45, z1: this.dock.z + 0.45, y1: this.P.deck + 0.5 });
-    if (this.outDock) out.push({ zone: 'outdock', x0: this.outDock.x - 0.6, x1: this.outDock.x + 0.6, z0: this.outDock.z - 0.45, z1: this.outDock.z + 0.45, y1: this.P.deck + 0.5 });
-    return out;
+    const [kx, kz] = this.foot, m = 0.05, [x, y, z] = this.p, y1 = y + this.kitH + this.P.clear + 0.06;
+    const X = { w: [x - kx / 2 - m, x], e: [x, x + kx / 2 + m] }, Z = { s: [z - kz / 2 - m, z], n: [z, z + kz / 2 + m] };
+    return QUADS.map((q) => ({ zone: q, x0: X[q[0]][0], x1: X[q[0]][1], z0: Z[q[1]][0], z1: Z[q[1]][1], y1 }));
   }
 
   audit() {
@@ -619,25 +542,31 @@ export class CellWork {
 
   // ── 셀 요약(생산 단위) ──
   unit(down) {
-    const S = this.stations, first = S[this.P.flow[0].station], last = S[this.P.flow.at(-1).station];
-    const working = last.phase === 'work';
-    const active = working || first.phase !== 'empty' || !!this.ticket || Object.values(this.robots).some((r) => r.op);
+    const Lf = this.lift, working = Lf.phase === 'work';
+    const active = working || Lf.phase === 'rise' || Lf.phase === 'lower' || Object.values(this.robots).some((r) => r.op);
     return {
       state: down ? 'DOWN' : active ? 'BUSY' : 'IDLE',
       working,
-      progress: working ? Math.min(1, last.el / this.P.takt) : 0,
-      stock: first.kit && first.phase !== 'incoming' ? 1 : 0,
+      progress: working ? Math.min(1, Lf.el / this.passTime[Lf.pass]) : Lf.phase === 'done' ? 1 : 0,
+      stock: Lf.kit ? 1 : 0,
       done: this.done,
+      phase: Lf.phase,
+      pass: Lf.kit ? Lf.pass : null,
     };
   }
 
-  // 그리기용: 로봇 자세·갠트리·롤러 이동량
+  // 그리기용: 로봇 자세·갠트리·롤러 이동량·리프트
   view() {
+    const Lf = this.lift, D = this.P.lift;
     return {
       robots: Object.values(this.robots).map((r) => ({ name: r.name, pose: r.pose, index: r.ch?.index ?? null, tcp: r.tcp, label: r.label, busy: !!r.op })),
       lines: this.lines.map((L) => ({ id: L.id, dir: L.dir, travel: L.travel, gantry: { z: L.gantry.z, y: L.gantry.y, busy: !!L.gantry.op }, rig: L.rig, count: L.items.length, left: L.left })),
-      stations: Object.values(this.stations).map((S) => ({ name: S.name, phase: S.phase, step: S.stepI, kit: S.kit?.id ?? null })),
+      stations: [{ name: 'LIFT', phase: Lf.phase, step: Lf.stepI, kit: Lf.kit?.id ?? null, pass: Lf.pass }],
       locks: { ...this.locks },
+      lift: {
+        x: D.x, z: D.z, y: Lf.y, deck: this.P.deck, top: this.top, clamp: Lf.clamp, phase: Lf.phase, kit: Lf.kit?.id ?? null,
+        pass: Lf.pass, label: this.P.passes[Lf.pass]?.label ?? null, foot: this.foot, jigH: this.jigH,
+      },
     };
   }
 }

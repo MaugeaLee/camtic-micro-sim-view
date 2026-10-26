@@ -46,7 +46,7 @@ try {
   check('layout 내려받기 헤더', dl.status === 200 && (dl.headers.get('content-disposition') || '').includes('layout.json'));
   check('없는 API 404', (await get(`${cfg.apiPrefix}/nope`)).status === 404);
   const proc = await (await get(cfg.api.process)).json();
-  check('process GET (가정 표시 · PRESS 흐름)', proc.version === 1 && proc.assumed === true && proc.cells.PRESS.flow.length === 2);
+  check('process GET (가정 표시 · PRESS pass · 공정 순서)', proc.version === 1 && proc.assumed === true && proc.cells.PRESS.passes.length === 1 && proc.route?.length === 5);
   check('process 쓰기 거부', (await get(cfg.api.process, { method: 'PUT' })).status === 405);
 
   const av = await (await get(`${cfg.api.assetViewer}?format=json`)).json();

@@ -14,8 +14,8 @@ const g = graphOf(L.amr.route);
 const geo = cellGeo(L);
 
 check('기본 경로 점검 통과', routeIssues(L).issues.length === 0, routeIssues(L).issues.join(' · '));
-check('PRESS·SCREW 막다른 셀(1대), SORT 통과 셀(정차 칸 7: 대기 2 · 레인 4 · 듀얼)', geo.PRESS.dead && geo.PRESS.cap === 1 && geo.SCREW.dead && !geo.SORT.dead && geo.SORT.cap === 7);
-check('셀 지점은 셀 자리를 따라간다', near(geo.PRESS.stops[0].x, L.cells.PRESS.x - 1.83) && near(geo.SORT.exit.x, L.cells.SORT.x + 8));
+check('PRESS·SCREW 통과 리프트 셀(1대 · 서쪽 입구 → 리프트 → 동쪽 출구), SORT 통과 셀(정차 칸 7: 대기 2 · 레인 4 · 듀얼)', !geo.PRESS.dead && geo.PRESS.cap === 1 && !geo.SCREW.dead && geo.SCREW.cap === 1 && !geo.SORT.dead && geo.SORT.cap === 7);
+check('셀 지점은 셀 자리를 따라간다', near(geo.PRESS.stops[0].x, L.cells.PRESS.x + 0.32) && near(geo.PRESS.exit.x, L.cells.PRESS.x + 4.6) && near(geo.SORT.exit.x, L.cells.SORT.x + 8));
 
 // 양방향 간선은 진행 방향 오른쪽으로 LANE: A1→A2(+x 진행)이면 z+LANE, 반대면 z−LANE
 const east = journey(g, { x: 0, z: 9.6 }, { x: 8, z: 9.6 });
@@ -39,18 +39,18 @@ check('끊긴 루트 → 도달 불가 셀', r2.badCells.size > 0, r2.issues.joi
 // 교차 구역: 셀 입구·출구 접속점. 가까운 접속점(SORT 출구·PRESS 입구)은 하나로 합친다
 const zs = junctions(g, geo);
 const shared = zs.find((z) => z.cells.includes('PRESS') && z.cells.includes('SORT'));
-check('교차 구역 · SORT 출구와 PRESS 입구는 한 구역 · 동쪽 반출 도크 포함', zs.length >= 5 && !!shared && zs.filter((z) => z.cells.includes('OUT')).length === 1
-  && zs.some((z) => z.cells.includes('PRESS:OUT') || z.cells.includes('SCREW:OUT')), zs.map((z) => `${z.cells.join('+')}@${z.x.toFixed(1)},${z.z.toFixed(1)} r${z.r.toFixed(2)}`).join(' '));
+check('교차 구역 · SORT 출구와 PRESS 입구는 한 구역 · PRESS 출구와 SCREW 입구도 한 구역 · SCREW 출구 따로', zs.length >= 5 && !!shared && zs.filter((z) => z.cells.includes('OUT')).length === 1
+  && zs.some((z) => z.cells.includes('PRESS') && z.cells.includes('SCREW')) && zs.filter((z) => z.cells.includes('SCREW')).length === 2, zs.map((z) => `${z.cells.join('+')}@${z.x.toFixed(1)},${z.z.toFixed(1)} r${z.r.toFixed(2)}`).join(' '));
 check('충전 자리는 교차 구역 밖', L.amr.homes.every((h) => zs.every((z) => Math.hypot(h.x - z.x, h.z - z.z) > z.r + 0.62)));
 const map = mapOf(routeGeo(L));
-check('그리기용 지도: 간선 12 · 충전 자리 6 · 셀 3 + 완료품 적재 구역 + 동쪽 반출 2 + SORT 뒤쪽 입고 · 충전 자리는 루트를 등진다', map.edges.length === 12 && map.homes.length === 6 && map.cells.length === 7 && !map.cells.find((c) => c.id === 'OUT').bad
-  && map.cells.some((c) => c.id === 'PRESS:OUT') && map.cells.some((c) => c.id === 'SCREW:OUT') && map.cells.some((c) => c.id === 'SORT:RAW')
+check('그리기용 지도: 간선 12 · 충전 자리 6 · 셀 3 + 완료품 적재 구역 + SORT 뒤쪽 입고 · 충전 자리는 루트를 등진다', map.edges.length === 12 && map.homes.length === 6 && map.cells.length === 5 && !map.cells.find((c) => c.id === 'OUT').bad
+  && !map.cells.some((c) => c.id.endsWith(':OUT')) && map.cells.some((c) => c.id === 'SORT:RAW')
   && map.homes.every((h) => near(h.heading, Math.PI, 1e-6) || near(h.heading, -Math.PI, 1e-6)));
 
 // Admin 편집 함수
 const toLocal = (cell, x, z) => ({ x: x - L.cells[cell].x, z: z - L.cells[cell].z });
 const m1 = moveHandle(L.amr, { kind: 'stop', cell: 'PRESS', i: 0 }, L.cells.PRESS.x - 2, L.cells.PRESS.z + 0.1, toLocal);
-check('셀 지점 이동은 셀 로컬로 저장', near(m1.cells.PRESS.stops[0].x, -2) && near(m1.cells.PRESS.stops[0].z, 0.1) && L.amr.cells.PRESS.stops[0].x === -1.83);
+check('셀 지점 이동은 셀 로컬로 저장', near(m1.cells.PRESS.stops[0].x, -2) && near(m1.cells.PRESS.stops[0].z, 0.1) && L.amr.cells.PRESS.stops[0].x === 0.32);
 const n1 = addNode(L.amr, 0, 6, 'A1');
 check('노드 추가 + 선택 노드와 연결', n1.amr.route.nodes.some((n) => n.id === n1.id) && n1.amr.route.edges.some((e) => e.a === 'A1' && e.b === n1.id));
 const c1 = cycleEdge(L.amr, 'A1', 'G1'), c2 = cycleEdge(c1.amr, 'A1', 'G1'), c3 = cycleEdge(c2.amr, 'A1', 'G1');
@@ -60,8 +60,9 @@ check('도크·입구·마지막 충전 자리는 못 지움', removeHandle(L.am
   && removeHandle({ ...L.amr, homes: [L.amr.homes[0]] }, { kind: 'home', i: 0 }) === null);
 const filled = { ...L.amr, homes: [...L.amr.homes, ...Array.from({ length: AMR_HOMES_MAX - L.amr.homes.length }, () => ({ x: 0, z: 6 }))] };
 check(`충전 자리 상한 ${AMR_HOMES_MAX}`, addHome(filled, 0, 6) === null && addHome({ ...L.amr, homes: filled.homes.slice(1) }, 0, 6).homes.length === AMR_HOMES_MAX);
-const x1 = addExit(L.amr, 'PRESS');
-check('출구 추가 → 통과 셀', !!x1.cells.PRESS.exit && cellGeo({ ...L, amr: x1 }).PRESS.dead === false);
+const noExit = { ...L.amr, cells: { ...L.amr.cells, PRESS: { ...L.amr.cells.PRESS, exit: null } } };
+const x1 = addExit(noExit, 'PRESS');
+check('출구 지우면 막다른 셀 · 출구 추가 → 통과 셀', cellGeo({ ...L, amr: noExit }).PRESS.dead === true && !!x1.cells.PRESS.exit && cellGeo({ ...L, amr: x1 }).PRESS.dead === false);
 const rmNode = removeHandle(L.amr, { kind: 'node', id: 'G2' });
 check('노드 지우면 붙은 간선도 지움 → 구조 검증은 통과, 점검에서 SCREW 도달 불가', validateLayout({ ...L, amr: rmNode }).length === 0
   && routeIssues(normalizeLayout({ ...L, amr: rmNode })).badCells.has('SCREW'));

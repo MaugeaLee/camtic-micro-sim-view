@@ -81,7 +81,8 @@ check('운휴 차는 그대로, 나머지로 배송 계속', c.amrs.filter((a) =
 
 // 막힌 셀(루트 끊김)은 배차하지 않는다
 const cut = structuredClone(defaultLayout());
-cut.amr.route.edges = cut.amr.route.edges.filter((e) => !(e.a === 'A2' && e.b === 'G2'));
+// G2 지선은 PRESS 출구·SCREW 입구가 같이 쓴다 — SCREW 출구 지선(A3–G3)을 끊는다
+cut.amr.route.edges = cut.amr.route.edges.filter((e) => !(e.a === 'A3' && e.b === 'G3'));
 const b = new ViewerState({ scenario: 'supply', amr: 4, layout: normalizeLayout(cut) });
 for (let i = 0; i < 6000; i++) b.step(0.1);
 const u = Object.fromEntries(b.plant.summary().units.map((x) => [x.id, x]));

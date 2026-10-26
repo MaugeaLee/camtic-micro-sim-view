@@ -6,7 +6,7 @@ import { AMR, Amr, sense } from './fleet.js';
 import { attach, cellGeo, cutAt, graphOf, headingOf, journey, pathLength, routeIssues } from './route.js';
 
 export const HOLD = 2.0;          // 셀 접속점 앞 진입 대기 거리(최소). 교차 구역 밖으로 더 물러날 수 있다
-export const SPUR_HOLD = 12;      // OUT·PRESS:OUT·SCREW:OUT·SORT:RAW: 세로 지선이 출차 길이라 통로 쪽에서 기다린다
+export const SPUR_HOLD = 12;      // OUT: 세로 지선이 출차 길이라 통로 쪽에서 기다린다
 export const ZONE_R = 1.8;        // 교차 구역 반경: 양 차로(±0.7) + 차체 + 여유
 const PRE = 1.0;                  // 도크·충전 자리 앞 저속 진입 구간
 const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
@@ -310,7 +310,7 @@ export class Acs {
   pickAmr(from, m) {
     const id = from ?? (typeof m?.dest === 'function' ? m.dest() : m?.dest);
     const target = (id && this.cells[id]?.entry) || this.homes[0];
-    const free = this.amrs.filter((a) => !a.off && a.mode === 'park' && a.idle && a.battery >= (a.lowLock ? AMR.battery.ready : AMR.battery.low));
+    const free = this.amrs.filter((a) => !a.off && !a.keep && a.mode === 'park' && a.idle && a.battery >= (a.lowLock ? AMR.battery.ready : AMR.battery.low));
     free.sort((a, b) => dist(a, target) - dist(b, target) || a.idx - b.idx);
     return free[0] ?? null;
   }
@@ -382,7 +382,7 @@ export class Acs {
       ...leg,
       ...this.enterStops(a, D),
       { until: () => m.canDrop(id), label: `${id} 하역 대기` },
-      ...this.handover(a, m.unload, m.what?.dock ?? id, '하역'),
+      ...this.handover(a, m.unload, m.what?.dock ?? id, m.what?.drop?.(id) ?? '하역'),
       { do: () => { a.ticket = null; m.drop(a.load, id); a.load = null; a.mission = null; this.after(a); } },
     ]);
   }
@@ -400,13 +400,15 @@ export class Acs {
   }
 
   // 하역 뒤: 배터리가 낮으면 충전, 아니면 대기 미션이 있으면 바로 이어 받고, 없으면 충전 자리로.
-  // 같은 접속점(G2: SCREW 투입·PRESS:OUT)에 붙는 칸으로 바로 이어 가면 잠금 두 개를 겹쳐 쥐거나
-  // 지선에서 교착이 난다 — 충전 자리로 빠져 다시 받는다.
+  // 같은 접속점에 붙는 칸으로 바로 이어 가면 잠금 두 개를 겹쳐 쥐거나 지선에서 교착이 난다 — 충전 자리로 빠져 다시 받는다.
+  // 빈 지그를 실은 차(a.keep: 완료품 적재 구역에서 도어트림만 내림)는 충전 자리로 먼저 간다 — 거기서 지그를 내려놓는다(onHome).
   after(a) {
     if (a.battery < AMR.battery.low) { a.lowLock = true; this.note?.(a, `배터리 ${a.battery.toFixed(0)}% — 충전 복귀`); this.goHome(a, '충전 복귀', a.at); return; }
+    if (a.keep) { this.goHome(a, '빈 지그 싣고 복귀', a.at); return; }
     const m = this.queue[0];
-    // 입고(SORT:RAW) 직후 북쪽 양팔 도크(SORT) 적재로 이어 가면 충전 왕복을 줄인다. 같은 접속점(G2)은 충전 자리로 뺀다.
-    if (m && !m.raw && this.ok(m.from) && (a.at?.kind === 'cell' && a.at.id === m.from || !this.sameHub(a.at, m.from))) {
+    // 입고(SORT:RAW) 직후 북쪽 양팔 도크(SORT) 적재로 이어 가면 충전 왕복을 줄인다. 같은 접속점은 충전 자리로 뺀다.
+    // 리프트 셀에서 방금 지그를 올려 준 차는 그 셀 반출(hop)을 그 자리에서 받지 않는다 — 지그 밑에 서 있지 않고 빠진다.
+    if (m && !m.raw && this.ok(m.from) && (a.at?.kind === 'cell' && a.at.id === m.from && !m.hop || !this.sameHub(a.at, m.from))) {
       this.queue.shift(); this.start(a, m); return;
     }
     this.goHome(a, '충전 자리 복귀', a.at);
@@ -430,7 +432,7 @@ export class Acs {
       this.note?.(a, '충전 자리로 가는 루트 없음 — 정지');
       return;
     }
-    a.setTask(why, [...leg, { face: H.heading }, { do: () => { a.mode = 'park'; a.task = '대기'; a.at = { kind: 'home', i: a.home }; } }]);
+    a.setTask(why, [...leg, { face: H.heading }, { do: () => { a.mode = 'park'; a.task = '대기'; a.at = { kind: 'home', i: a.home }; this.onHome?.(a); } }]);
   }
 
   // ── 이동 구간 ──
@@ -465,10 +467,7 @@ export class Acs {
     const mid = pts.slice(j.joinIn, j.joinOut + 1);
     if (to.kind === 'cell') {
       const id = to.id, L = pathLength(mid);
-      // SCREW 투입은 G2 지선이 PRESS:OUT 출차 길과 같다. 충전 자리에서 잠금이 풀릴 때까지 기다려 지선에 서지 않는다.
-      const at = (id === 'SCREW' && from.kind === 'home')
-        ? null
-        : this.holdAt(mid, L, this.cells[id].dead && id !== 'SORT:RAW' && (id.includes(':') || id === 'OUT'));
+      const at = this.holdAt(mid, L, this.cells[id].dead && id === 'OUT');
       const wait = () => { a.waitFor = id; const ok = this.acquire(id, a); if (ok) a.waitFor = null; return ok; };
       if (at === null) {
         // 접속점끼리 너무 가까워 구역 밖 대기 자리가 없다 → 출발 전에(지금 자리에서) 잠금부터 잡는다.
@@ -494,7 +493,7 @@ export class Acs {
   }
 
   // 진입 대기점: 접속점 HOLD m 앞, 교차 구역 안이면 구역 밖까지 더 물러난다(대기 차가 구역을 막지 않게).
-  // 동쪽 반출 칸은 세로 지선이 출차 길과 같으므로 SPUR_HOLD 만큼 더 물러 북쪽 통로 쪽에서 선다.
+  // 완료품 적재 구역(OUT)은 세로 지선이 출차 길과 같으므로 SPUR_HOLD 만큼 더 물러 북쪽 통로 쪽에서 선다.
   holdAt(mid, L, dead = false) {
     const min = dead ? SPUR_HOLD : HOLD;
     for (let d = min; d < L; d += 0.2) {

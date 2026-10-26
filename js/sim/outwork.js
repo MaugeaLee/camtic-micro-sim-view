@@ -1,6 +1,7 @@
 // 완료품 적재 구역(OUT): 협동로봇이 AMR 적재면의 완료품을 집어 세워 책장 칸에 꽂는다. 칸이 다 차면 묶어서 출하(치움). DOM·three 없음.
 // 좌표는 자리 로컬(m, 바닥 y=0). TCP = 그리퍼가 잡는 점. GLB 없음 — 형상·치수·시간·출하 규칙은 모두 가정이다.
 // 핸드셰이크는 셀 하역과 같다: offer → 물고 들면 released(AMR 출발) → 칸에 꽂음.
+// 도어트림은 지그에 얹혀 온다. 협동로봇은 도어트림만 집고, 빈 지그는 AMR 에 남긴다(물 때 키트 엔티티를 도어트림 + 지그로 나눈다).
 const smooth = (u) => u * u * (3 - 2 * u);
 const lerp3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -37,6 +38,7 @@ export class OutWork {
     this.O = O;
     this.parts = parts;
     this.kitH = O.kit.size[1];
+    this.jigH = O.jig?.size[1] ?? 0;
     this.kitW = O.kit.size[0];
     this.kitD = O.kit.size[2];
     this.slots = O.slots.map((p) => ({ p: [p.x, p.y, p.z], kit: null }));
@@ -80,8 +82,8 @@ export class OutWork {
     this.follow();
   }
 
-  // 집기: 눕힌 키트 윗면. 꽂기: 세운 키트 +z 면 가운데(책등 반대).
-  pickTcp(at) { return [at[0], this.O.deck + this.kitH, at[1]]; }
+  // 집기: 지그 위 눕힌 도어트림 윗면. 꽂기: 세운 도어트림 +z 면 가운데(책등 반대).
+  pickTcp(at) { return [at[0], this.O.deck + this.jigH + this.kitH, at[1]]; }
   slotTcp(p) { return [p[0], p[1] + this.kitW / 2, p[2] + this.kitD / 2]; }
 
   start(T) {
@@ -119,6 +121,7 @@ export class OutWork {
         { t: K.grip, fn: () => {
           if (T.cancel) return;
           this.parts.hold(T.kit, holder, T.from); this.held = T.kit; T.gripped = true;
+          if (T.kit.jig) T.jig = this.split(T.kit, T.from);
         } },
         { t: K.release, fn: () => { T.released = true; } },
         { t: K.drop, fn: () => {
@@ -129,6 +132,14 @@ export class OutWork {
         } },
       ],
     };
+  }
+
+  // 지그째 온 키트 → 도어트림(로봇이 든 것) + 빈 지그(AMR 에 남는 새 엔티티)
+  split(kit, at) {
+    const J = kit.jig;
+    kit.jig = null;
+    kit.h = this.kitH;
+    return this.parts.add('jig', at, { size: J.size, h: this.jigH, color: J.color });
   }
 
   run(h) {

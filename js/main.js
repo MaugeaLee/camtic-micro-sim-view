@@ -7,6 +7,7 @@ import { FOOTPRINT, SITE_SPUR, canPlace, defaultLayout, extent, layoutStamp, nor
 import { ViewerState } from './sim/state.js';
 import { AMR_MAX, DEFAULT_SCENARIO, SCENARIOS } from './sim/scenario.js';
 import { mapOf, routeGeo } from './sim/acs.js';
+import { AMR } from './sim/fleet.js';
 import { addExit, addHome, addNode, cycleEdge, moveHandle, removeHandle } from './sim/amrdata.js';
 import { dockIssues } from './sim/supply.js';
 import { DataHub } from './data/hub.js';
@@ -25,6 +26,8 @@ import { PartsView } from './render/parts.js';
 import { OutSiteView } from './render/outsite.js';
 import { PartsSiteView } from './render/partsite.js';
 import { HoundView } from './render/hound.js';
+import { LiftView } from './render/lifts.js';
+import { mainAmrModel, mainAmrNodes } from './render/mainamr.js';
 import { RENDER, assetFrame, assetRig, loadAssets, loadModel, cloneAsset } from './assets/loader.js';
 import { scanMovers } from './assets/scan.js';
 import { baseName } from './assets/rigdata.js';
@@ -54,6 +57,7 @@ const partsView = new PartsView(stage.scene);
 const outView = new OutSiteView(stage.scene);
 const depotView = new PartsSiteView(stage.scene, FOOTPRINT.PARTS);
 const houndView = new HoundView(stage.scene);
+const liftView = new LiftView();
 const rig = new CameraRig(stage);
 const hub = new DataHub();
 const ui = new UI({
@@ -91,6 +95,7 @@ const picker = new Picker(stage, [
 let state = null;
 let layout = defaultLayout();
 let processDoc = null;
+let mainModel = null;   // 메인 AMR 차체(셀 GLB AMR_MAIN_JIG 복제) — 리프트 셀 GLB 가 붙으면 만든다
 let place = null;
 let routeTool = null;
 let pollTimer = null;
@@ -124,6 +129,8 @@ function start() {
   view.setup(state, { extent });
   view.applyLayout(layout);
   aimCctv();
+  fleetView.setTop(state.plant?.proc ? state.plant.proc.deck : null);
+  fleetView.setModel(state.plant?.proc ? mainModel : null);
   fleetView.setup(state);
   partsFleetView.setTop(processDoc?.supply?.top ?? null);
   partsFleetView.setup(state);
@@ -180,6 +187,24 @@ function mount(cell) {
   if (state.plant) hideAssetAmrs(cell, obj);
   hideFeedProps(cell, obj);
   bindRig(cell, obj);
+  bindLift(cell, obj);
+}
+
+// 리프트 셀(PRESS·SCREW): GLB 의 AMR_MAIN_JIG(= 메인 AMR 자세 인스턴스)를 숨기고 리프트 기둥·클립을 붙인다.
+// 처음 붙는 리프트 셀의 AMR_MAIN_JIG 로 도어트림 플릿 차체 모델을 만든다(차체 가로 = 시뮬 AMR 치수 · 지그 상판 = 지그 + 여유).
+function bindLift(cell, obj) {
+  liftView.detach(cell.id);
+  const L = state.plant?.work[cell.id]?.view?.().lift;
+  if (!L) return;
+  const nodes = mainAmrNodes(obj);
+  for (const o of nodes) o.visible = false;
+  liftView.attach(cell.id, view.groups.get(cell.id), L);
+  if (!mainModel) {
+    const panel = (state.plant.proc.jig?.size[0] ?? state.plant.proc.kit.size[0]) + 0.15;
+    mainModel = mainAmrModel(RENDER.loaded.get(cell.asset), { length: AMR.length, width: AMR.width, panel });
+    if (mainModel) { fleetView.setModel(mainModel); fleetView.setup(state); }
+  }
+  state.log('info', `${cell.id} 작업대 리프트`, { obs: `GLB 메인 AMR(AMR_MAIN_JIG) ${nodes.length}개 숨김 · 플릿 메인 AMR 이 그 자리에 서고 지그째 들어 올림(가정 형상)${mainModel ? '' : ' · 차체 모델 없음(상자)'}` });
 }
 
 // 분류 레인이 시뮬로 돌면 GLB 의 레인 위 고정 토트(feed.hide)는 숨긴다 — 토트 엔티티가 대신 움직인다.
@@ -210,7 +235,12 @@ function drawWork() {
   const plant = state.plant;
   houndView.update(plant?.hound?.view() ?? null);
   if (!plant?.proc) { outView.update(null); return; }
-  for (const [id, cw] of Object.entries(plant.work)) if (id !== 'OUT') rigView.update(id, cw.view());
+  for (const [id, cw] of Object.entries(plant.work)) {
+    if (id === 'OUT') continue;
+    const v = cw.view();
+    rigView.update(id, v);
+    if (v.lift) liftView.update(id, v.lift);
+  }
   outView.update(plant.work.OUT?.view() ?? null, plant.proc.kit.size, placeOf(layout, 'OUT'));
   partsView.update(plant.partPoses());
 }
@@ -512,5 +542,5 @@ frame();
 // 개발용 핸들. 콘솔에서 __viewer.loadAssets() 등.
 window.__viewer = {
   get state() { return state; }, get layout() { return layout; }, get admin() { return admin; },
-  stage, field, view, fleetView, partsFleetView, rigView, partsView, outView, depotView, houndView, rig, hub, ui, get place() { return place; }, get routeTool() { return routeTool; }, RENDER, start, loadAssets: loadCellAssets, applyLayout, setAdmin,
+  stage, field, view, fleetView, partsFleetView, rigView, liftView, partsView, outView, depotView, houndView, rig, hub, ui, get place() { return place; }, get routeTool() { return routeTool; }, RENDER, start, loadAssets: loadCellAssets, applyLayout, setAdmin,
 };
