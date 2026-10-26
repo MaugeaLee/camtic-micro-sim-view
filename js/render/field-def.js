@@ -3,14 +3,15 @@
 // 원점 = 바닥 중심, x = 폭, z = 깊이(−z 뒷벽, +z 열린 앞면), 1 = 1 m.
 export const FIELD = Object.freeze({
   assumed: true,
-  size: Object.freeze({ w: 48, d: 30 }),
+  // 76 m: SORT 서쪽에 PRESS 크기 완료품 구역(OUT, 중심 x −30)과 서쪽 벽 여유, 동쪽은 반출 지선(A3–G3, x 25.8)과 부품 통로(x 29).
+  // 60 m 에서는 OUT 이 벽에 붙고, 52 m 에서는 동쪽 두 차로가 겹친다.
+  size: Object.freeze({ w: 76, d: 30 }),
   tile: 4,
   wall: Object.freeze({ h: 8, t: 0.3, sides: Object.freeze(['back', 'left', 'right']) }),
   column: Object.freeze({ size: 0.6, pitch: 9 }),
   band: Object.freeze({ h: 0.5, d: 0.35, y: 7.7 }),
-  lanes: Object.freeze([
-    Object.freeze({ x: 0, z: 12.2, w: 45, d: 2.6 }),
-  ]),
+  // 고정 통로 도색. AMR 루트는 레이아웃 데이터(amr.route)라 render/fleet.js 가 따로 그린다.
+  lanes: Object.freeze([]),
 });
 
 const SIDES = ['back', 'left', 'right', 'front'];

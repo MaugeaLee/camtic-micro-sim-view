@@ -54,6 +54,7 @@ export const API = Object.freeze({
   docs: '/api/docs',
   openapi: '/api/openapi.json',
   layout: '/api/layout',
+  process: '/api/process',
 });
 
 // 호스트·포트·에셋만 env. API 경로는 위 상수. 배포 값은 파일·환경변수가 우선.

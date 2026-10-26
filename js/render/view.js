@@ -36,13 +36,15 @@ export class CellView {
     this.selected = state.selected;
   }
 
-  // 로드된 에셋 루트를 셀 그룹에 붙인다. 자리는 그룹에 두고, 메시는 바닥(y=0)·XZ 중심에 앉힌다.
-  attach(id, object) {
+  // 로드된 에셋 루트를 셀 그룹에 붙인다. 자리는 그룹에 두고, 메시는 셀 프레임 오프셋(glb.js cellFrame)으로 바닥(y=0)·XZ 중심에 앉힌다.
+  attach(id, object, frame) {
     const g = this.groups.get(id);
     if (!g) throw new Error(`없는 셀 그룹: ${id}`);
     const mark = this.marks.get(id);
     g.clear();
-    const h = seatOnFloor(object);
+    const [ox, oy, oz] = frame?.offset ?? [0, 0, 0];
+    object.position.x += ox; object.position.y += oy; object.position.z += oz;
+    const h = frame?.height ?? 3;
     g.add(object);
     if (mark) {
       g.add(mark.frame, mark.floor, mark.label);
@@ -228,16 +230,4 @@ function disposeMark(m) {
   m.floor.material.dispose();
   m.tex.dispose();
   m.label.material.dispose();
-}
-
-// GLB 원점이 바닥이 아니다(PRESS/SCREW는 y≈5, SORT는 y≈20). 박스 밑면을 y=0, 중심을 xz=0에 둔다. 높이를 돌려준다.
-function seatOnFloor(object) {
-  object.updateWorldMatrix(true, true);
-  const box = new THREE.Box3().setFromObject(object);
-  if (box.isEmpty()) return 3;
-  const c = box.getCenter(new THREE.Vector3());
-  object.position.x += -c.x;
-  object.position.z += -c.z;
-  object.position.y += -box.min.y;
-  return box.max.y - box.min.y;
 }

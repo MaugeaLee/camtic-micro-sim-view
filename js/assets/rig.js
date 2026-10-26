@@ -260,5 +260,37 @@ export function inferRig(parts, { up = [0, 1, 0], tune = TUNE } = {}) {
   });
   const joints = kept.map((j) => ({ part: j.part, name: info[j.part].name, origin: j.center, axis: j.axis, parent: j.parent, level: j.level }));
   const levels = joints.reduce((m, j) => Math.max(m, j.level), 0);
-  return { root, joints, link, levels, robot: levels >= tune.minLevels };
+  const out = { root, joints, link, levels, robot: levels >= tune.minLevels };
+  out.tcp = out.robot ? inferTcp(parts, out) : null;
+  return out;
+}
+
+// TCP: 말단 링크(가장 깊은 관절)의 점 중 그 관절 원점에서 가장 먼 점. 접근 방향 = 원점 → 그 점.
+// 먼 점 방향이 관절축과 거의 나란하면(공구가 축 위에 달림) 축 방향으로 맞추고, TCP 는 축 위 가장 먼 높이로 둔다(양쪽 집게 끝의 가운데).
+export function inferTcp(parts, rig, { coaxial: co = 0.7 } = {}) {
+  if (!rig?.joints?.length) return null;
+  let last = 0;
+  rig.joints.forEach((j, i) => { if (j.level >= rig.joints[last].level) last = i; });
+  const J = rig.joints[last], o = J.origin;
+  let far = null, best = -1;
+  rig.link.forEach((k, p) => {
+    if (k !== last) return;
+    const pts = parts[p].points;
+    for (let i = 0; i < pts.length; i += 3) {
+      const d = Math.hypot(pts[i] - o[0], pts[i + 1] - o[1], pts[i + 2] - o[2]);
+      if (d > best) { best = d; far = [pts[i], pts[i + 1], pts[i + 2]]; }
+    }
+  });
+  if (!far || best <= 1e-6) return null;
+  const dir = sub(far, o).map((v) => v / best);
+  const c = dot(dir, J.axis);
+  if (Math.abs(c) < co) return { joint: last, point: far, approach: dir, reach: best };
+  const approach = J.axis.map((v) => v * Math.sign(c));
+  let h = 0;
+  rig.link.forEach((k, p) => {
+    if (k !== last) return;
+    const pts = parts[p].points;
+    for (let i = 0; i < pts.length; i += 3) h = Math.max(h, dot([pts[i] - o[0], pts[i + 1] - o[1], pts[i + 2] - o[2]], approach));
+  });
+  return { joint: last, point: o.map((v, k) => v + approach[k] * h), approach, reach: h };
 }

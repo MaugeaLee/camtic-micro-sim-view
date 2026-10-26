@@ -63,6 +63,15 @@ check('아래팔은 팔꿈치 링크', r.link[6] === 2);
 check('그리퍼는 툴 링크', r.link[8] === 3);
 check('부모 관절', r.joints.map((j) => j.parent).join() === '-1,0,1,2');
 
+// TCP: 툴 원판(Y축) 아래 그리퍼 끝. 축과 나란하니 접근 = −Y, TCP 는 축 위 그리퍼 바닥 높이
+check('TCP = 말단 관절 축 위 가장 먼 점', r.tcp && r.tcp.joint === 3 && near(r.tcp.point[0], 0, 1e-9) && near(r.tcp.point[1], 0.6, 1e-9) && near(r.tcp.point[2], 0.6, 1e-9),
+  r.tcp ? r.tcp.point.map((v) => v.toFixed(3)).join(',') : '없음');
+check('접근 방향 −Y', r.tcp && near(r.tcp.approach[1], -1, 1e-9) && near(r.tcp.reach, 0.15, 1e-9));
+// 공구가 옆으로 달리면(축과 나란하지 않음) 먼 점 그대로, 접근은 원점→점
+const side = arm.slice(0, 8).concat([{ name: 'SideTool', points: box([0.0, 0.73, 0.58], [0.3, 0.77, 0.62]) }]);
+const rs = inferRig(side);
+check('옆 공구 TCP = 가장 먼 점', rs.tcp && near(rs.tcp.point[0], 0.3, 1e-9) && rs.tcp.approach[0] > 0.9, rs.tcp ? rs.tcp.point.map((v) => v.toFixed(3)).join(',') : '없음');
+
 const conveyor = [{ name: 'Frame', points: box([-0.5, 0, -1], [0.5, 0.4, 1]) }];
 for (let i = 0; i < 6; i++) conveyor.push({ name: `Roller${i}`, points: cyl([0, 0.43, -0.9 + i * 0.3], 'x', 0.03, 0.9) });
 const c = inferRig(conveyor);

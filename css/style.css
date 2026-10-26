@@ -32,6 +32,20 @@ button:hover, button.on { border-color: var(--accent); color: #fff; }
 .panel.left { left: 12px; }
 .panel.right { right: 12px; }
 .panel h2 { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+.panel:not(.preview-tree) { display: flex; flex-direction: column; overflow: hidden; transition: transform 0.22s ease; }
+.panel-head { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.panel-head h2 { margin: 0; flex: 1; }
+.panel-toggle { width: 24px; height: 24px; padding: 0; flex: 0 0 auto; display: grid; place-items: center; color: var(--muted); }
+.panel-toggle::before { content: ""; display: block; width: 6px; height: 6px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; }
+.panel.left .panel-toggle::before { transform: rotate(135deg); }
+.panel.right .panel-toggle::before { transform: rotate(-45deg); }
+.panel.left.closed .panel-toggle::before { transform: rotate(-45deg); }
+.panel.right.closed .panel-toggle::before { transform: rotate(135deg); }
+.panel-body { flex: 1; min-height: 0; overflow: auto; }
+.panel.left.closed { transform: translateX(calc(-100% + 40px)); }
+.panel.right.closed { transform: translateX(calc(100% - 40px)); }
+.panel.closed .panel-body { visibility: hidden; }
+.panel.closed .panel-head h2 { visibility: hidden; }
 
 .cells, .log { list-style: none; margin: 0; padding: 0; }
 .cells li { display: grid; grid-template-columns: 56px 1fr auto auto; gap: 4px 8px; align-items: center; padding: 8px; border-radius: 6px; cursor: pointer; }
@@ -48,6 +62,7 @@ select option { background: #1b212b; }
 .fleetbox { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
 .fleetbox h2 small { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: 6px; }
 .fleetbox .hint { margin: 8px 0 0; color: var(--muted); font-size: 11px; }
+.fleetbox .acsline { margin: 0 0 6px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .amrs { list-style: none; margin: 0; padding: 0; }
 .amrs li { display: grid; grid-template-columns: 58px 1fr 44px; gap: 6px; align-items: center; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
 .amrs li:hover, .amrs li.on { background: rgba(79, 179, 255, 0.12); }
@@ -67,7 +82,8 @@ select option { background: #1b212b; }
 .log .lv-error { color: var(--bad); }
 
 .buildbar { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
-.buildbar .hint { margin: 0 0 8px; color: var(--muted); font-size: 12px; }
+.buildbar .hint { margin: 8px 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.buildbar .hint b { color: var(--text, #e6edf3); font-weight: 600; }
 .build-actions { display: flex; gap: 6px; margin-top: 8px; }
 .build-actions button { flex: 1; }
 

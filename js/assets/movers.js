@@ -192,6 +192,11 @@ export function inferGantry(parts, { up = UP } = {}) {
   const cross = crosses.sort((a, b) => b.mid - a.mid)[0] ?? null;
   const head = [{ i: col.i, name: col.name }, ...tool.map((t) => ({ i: t.i, name: t.name }))];
   const lift = cross ? [{ i: cross.i, name: cross.name }, ...head] : head;
+  // 레일 길이 방향 이동 범위(문형 안쪽). 크로스·헤드가 레일 끝을 넘지 않는다
+  const along = (p) => dot(p, horiz);
+  const railBox = sides ? aabbOf(sides.flatMap((s) => [...s.min, ...s.max])) : aabbOf(posts.flatMap((p) => [...p.min, ...p.max]));
+  const half = cross ? Math.abs(dot(cross.size, horiz)) / 2 : 0.1;
+  const travel = [Math.min(along(railBox.min), along(railBox.max)) + half, Math.max(along(railBox.min), along(railBox.max)) - half];
 
   return {
     kind: 'gantry',
@@ -201,9 +206,22 @@ export function inferGantry(parts, { up = UP } = {}) {
     toolOrigin: mean(head, (t) => boxes.find((b) => b.i === t.i).center),
     lift,
     tool: head,
+    travel,
+    work: heldWork(tool.map((t) => boxes.find((b) => b.i === t.i))),
     ampX: Math.min(0.5, run * 0.16),
     ampZ: Math.min(0.08, col.long * 0.18),
   };
+}
+
+// 공구 아래 매달린 작업물(대표 부품): 공구 부품 중 가장 낮고 납작하며, 나머지 공구 부품 밑면보다 아래에 통째로 있는 것.
+// 이름이 아니라 높이로 고른다. 패드만 있으면(작업물 없음) null.
+export function heldWork(tool, { tol = 0.01 } = {}) {
+  if (tool.length < 2) return null;
+  const low = [...tool].sort((a, b) => a.min[1] - b.min[1]);
+  const w = low[0], rest = low.slice(1);
+  const floor = Math.min(...rest.map((b) => b.min[1]));
+  if (w.max[1] > floor + tol || w.size[1] >= w.mid) return null;
+  return { i: w.i, name: w.name, size: w.size, center: w.center, top: w.max[1], bottom: w.min[1], pads: floor };
 }
 
 export function inferTrack(parts, { up = UP } = {}) {

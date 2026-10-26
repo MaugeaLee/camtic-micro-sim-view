@@ -44,7 +44,7 @@ copy .env.example .env
 | `ASSET_URL` | `/assets` | 브라우저가 GLB를 받는 URL |
 | `LAYOUT_FILE` | `data/layout.json` | 쓰는 자리. 없으면 `src/layout.default.json`만 읽는다. PUT은 여기만 씀 |
 
-이미 있는 환경변수가 `.env`보다 우선한다. 브라우저는 `.env`를 읽지 않고, 서버가 `index.html`에 `window.__ENV`로 공개 값만 넣는다. API 경로는 `/api/status` `/api/assets` `/api/config` `/api/asset-viewer` `/api/layout` `/api/docs` `/api/openapi.json`. PUT은 `/api/layout`만(127.0.0.1).
+이미 있는 환경변수가 `.env`보다 우선한다. 브라우저는 `.env`를 읽지 않고, 서버가 `index.html`에 `window.__ENV`로 공개 값만 넣는다. API 경로는 `/api/status` `/api/assets` `/api/config` `/api/asset-viewer` `/api/layout` `/api/process` `/api/docs` `/api/openapi.json`. PUT은 `/api/layout`만(127.0.0.1).
 
 ### 3. 서버 시작
 
@@ -65,6 +65,7 @@ npm start
 | http://127.0.0.1:8790/?build=1 | Admin 모드로 시작 (타이틀 옆 버튼과 같음) |
 | http://127.0.0.1:8790/api/layout | 셀 자리 JSON |
 | http://127.0.0.1:8790/api/layout?download=1 | 같은 JSON을 파일로 |
+| http://127.0.0.1:8790/api/process | 셀 공정 정의(가정값, 읽기 전용) |
 | http://127.0.0.1:8790/api/docs | Swagger UI (엔드포인트 조회·GET 실행) |
 | http://127.0.0.1:8790/api/openapi.json | OpenAPI 3 스펙 |
 | http://127.0.0.1:8790/api/asset-viewer | 테스트 뷰포트 (브라우저) |
@@ -77,7 +78,9 @@ npm start
 __viewer.loadAssets()
 ```
 
-자리는 `.env`의 `LAYOUT_FILE`(기본 `data/layout.json`)이다. 파일이 없으면 `src/layout.default.json`을 읽기만 한다. Admin에서 옮긴 뒤 올리면 `LAYOUT_FILE`에만 쓴다.
+자리는 `.env`의 `LAYOUT_FILE`(기본 `data/layout.json`)이다. 파일이 없으면 `src/layout.default.json`을 읽기만 한다. 레이아웃(v2)에는 셀 자리와 AMR 경로(루트·충전 자리·셀 안 지점)가 같이 들어 있다. Admin(`?build=1`, 경로 편집은 `?build=route`)에서 고친 뒤 「저장」하거나 올리면 `LAYOUT_FILE`에만 쓴다. 이전 v1 파일은 기본 AMR 경로를 붙여 읽는다.
+
+서버를 띄운 채 코드를 받아오면(`git pull`) 서버도 다시 띄운다. 서버가 시작할 때 읽은 레이아웃 검증 코드로 응답하기 때문이다.
 
 ### 5. 확인
 
@@ -109,8 +112,9 @@ vendor/three/       Three r186 (레포에 포함)
 .env.example        배포용 키 목록 (복사해서 .env)
 server.mjs          npm start
 server/             정적 화이트리스트 + API
-src/render_asset/   PRESS.glb SCREW.glb SORT.glb
-src/layout.default.json  기본 자리(읽기 전용 fallback)
+src/render_asset/   PRESS.glb SCREW.glb SORT.glb quadruped.glb doortrim.glb
+src/layout.default.json  기본 자리 + AMR 경로 (읽기 전용 fallback)
+src/process.default.json 셀 공정 정의(가정값): PRESS 스테이션 흐름·작업 지점·부품 치수, SORT 랙·SCREW 지그 칸
 data/layout.json         쓰는 자리 (LAYOUT_FILE, git 제외)
 tests/              Node 헤드리스
 ```

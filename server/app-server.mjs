@@ -6,6 +6,7 @@ import { ROOT, mergeConfig, publicConfig, resolveAssetDir } from './env.mjs';
 import { catalog, wantsHtml } from './asset-viewer.mjs';
 import { buildOpenApi } from './openapi.mjs';
 import { loadLayout, saveLayout } from './layout.mjs';
+import { loadProcess } from './process.mjs';
 
 export { ROOT };
 
@@ -74,6 +75,10 @@ export function createHandler(cfg) {
       }
       if (p === cfg.api.assets) return json(res, 200, listAssets(assetDir));
       if (p === cfg.api.config) return json(res, 200, publicConfig(cfg));
+      if (p === cfg.api.process) {
+        const loaded = loadProcess();
+        return loaded.ok ? json(res, 200, loaded.doc) : json(res, 500, { error: loaded.errors.join(' · ') });
+      }
       if (p === cfg.api.assetViewer) {
         const key = url.searchParams.get('key');
         const body = catalog(assetDir, cfg.assetUrl, key);

@@ -1,31 +1,7 @@
-// GLB 헤더·JSON 청크 검사. three 없이 버퍼만 읽는다 (Node·브라우저 공용 로직).
-// 규격: glTF 2.0 바이너리 — 12바이트 헤더(magic 'glTF', version 2, length) 뒤 JSON 청크가 먼저 온다.
-const MAGIC = 0x46546c67;
-const CHUNK_JSON = 0x4e4f534a;
+// GLB 셀 계약 검사. 버퍼 읽기·기하는 js/assets/glb.js (three 없음, 브라우저와 공용).
+import { readGlb, rootNames } from '../js/assets/glb.js';
 
-export function readGlb(buf) {
-  const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
-  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
-  const errors = [];
-  if (u8.byteLength < 20) return { errors: ['12바이트 헤더 + 청크 헤더보다 짧음'] };
-  const magic = dv.getUint32(0, true), version = dv.getUint32(4, true), length = dv.getUint32(8, true);
-  if (magic !== MAGIC) errors.push('magic이 glTF 아님');
-  if (version !== 2) errors.push(`version ${version} (2여야 함)`);
-  if (length !== u8.byteLength) errors.push(`헤더 길이 ${length} ≠ 파일 ${u8.byteLength}`);
-  const jsonLen = dv.getUint32(12, true), jsonType = dv.getUint32(16, true);
-  if (jsonType !== CHUNK_JSON) errors.push('첫 청크가 JSON 아님');
-  if (errors.length) return { magic, version, length, errors };
-  let json = null;
-  try { json = JSON.parse(new TextDecoder().decode(u8.subarray(20, 20 + jsonLen))); }
-  catch (e) { errors.push(`JSON 청크 파싱 실패: ${e.message}`); }
-  return { magic, version, length, json, errors };
-}
-
-// 기본 씬의 루트 노드 이름.
-export function rootNames(json) {
-  const scene = json?.scenes?.[json.scene ?? 0];
-  return (scene?.nodes ?? []).map((i) => json.nodes?.[i]?.name ?? '');
-}
+export { readGlb, rootNames };
 
 // 셀 GLB 계약: 헤더가 유효하고, 기본 씬 루트 노드가 하나이며 이름이 셀 id.
 export function checkCellGlb(buf, id) {

@@ -41,10 +41,13 @@ try {
   check('layout POST 거부', (await get(cfg.api.layout, { method: 'POST' })).status === 405);
 
   const lay = await (await get(cfg.api.layout)).json();
-  check('layout GET', lay.version === 1 && lay.cells.PRESS && lay.cells.SCREW && lay.cells.SORT);
+  check('layout GET', lay.version === 2 && lay.cells.PRESS && lay.cells.SCREW && lay.cells.SORT && lay.amr?.homes?.length > 0);
   const dl = await get(`${cfg.api.layout}?download=1`);
   check('layout 내려받기 헤더', dl.status === 200 && (dl.headers.get('content-disposition') || '').includes('layout.json'));
   check('없는 API 404', (await get(`${cfg.apiPrefix}/nope`)).status === 404);
+  const proc = await (await get(cfg.api.process)).json();
+  check('process GET (가정 표시 · PRESS 흐름)', proc.version === 1 && proc.assumed === true && proc.cells.PRESS.flow.length === 2);
+  check('process 쓰기 거부', (await get(cfg.api.process, { method: 'PUT' })).status === 405);
 
   const av = await (await get(`${cfg.api.assetViewer}?format=json`)).json();
   check('asset-viewer 목록', av.count >= 3 && av.items.every((a) => a.three && a.url && a.format === 'glb'));
@@ -90,12 +93,13 @@ try {
   const u = `http://127.0.0.1:${moved.port}`;
   const empty = await (await fetch(`${u}${moved.cfg.api.layout}`)).json();
   check('없는 파일은 기본 자리', empty.cells.PRESS.x === defaultLayout().cells.PRESS.x);
-  const next = { ...defaultLayout(), cells: { ...defaultLayout().cells, PRESS: { x: -14, z: 6, rotY: 0 } } };
+  const next = { ...defaultLayout(), cells: { ...defaultLayout().cells, PRESS: { x: 4, z: 6, rotY: 0 } } };
+  next.amr = { ...next.amr, homes: next.amr.homes.slice(0, 5) };
   const put = await fetch(`${u}${moved.cfg.api.layout}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(next) });
   const saved = await put.json();
-  check('layout PUT', put.status === 200 && saved.cells.PRESS.z === 6);
+  check('layout PUT (셀 자리 + AMR 경로)', put.status === 200 && saved.cells.PRESS.z === 6 && saved.amr.homes.length === 5);
   const again = await (await fetch(`${u}${moved.cfg.api.layout}`)).json();
-  check('PUT 후 GET', again.cells.PRESS.z === 6 && again.rev > 0);
+  check('PUT 후 GET', again.cells.PRESS.z === 6 && again.amr.homes.length === 5 && again.rev > 0);
   const bad = await fetch(`${u}${moved.cfg.api.layout}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: '{"version":1}' });
   check('잘못된 PUT 거부', bad.status === 400);
 } finally {
@@ -107,7 +111,7 @@ const locked = await startServer({ port: 0, host: '127.0.0.1', layoutFile: 'src/
 try {
   const u = `http://127.0.0.1:${locked.port}`;
   const got = await (await fetch(`${u}${locked.cfg.api.layout}`)).json();
-  check('기본 파일 GET', got.cells.SORT.x === 14);
+  check('기본 파일 GET', got.cells.SORT.x === defaultLayout().cells.SORT.x && JSON.stringify(got.amr) === JSON.stringify(defaultLayout().amr));
   const putDef = await fetch(`${u}${locked.cfg.api.layout}`, {
     method: 'PUT', headers: { 'content-type': 'application/json' },
     body: JSON.stringify(defaultLayout()),

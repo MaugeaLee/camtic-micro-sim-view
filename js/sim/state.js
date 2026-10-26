@@ -8,7 +8,8 @@ const LOG_CAP = 160;
 
 export class ViewerState {
   // scenario: SCENARIOS 키. 없으면 셀 상태는 setCellState 로만 바뀐다.
-  constructor({ cells = CELLS, quiet = false, scenario = null, layout = defaultLayout(), amr = null } = {}) {
+  // process: 셀 공정 정의(src/process.default.json). 주면 키트·부품 엔티티와 PRESS 셀 안 공정이 돈다.
+  constructor({ cells = CELLS, quiet = false, scenario = null, layout = defaultLayout(), amr = null, process = null } = {}) {
     this.time = 0;
     this.running = false;
     this.speed = 1;
@@ -21,8 +22,11 @@ export class ViewerState {
     this.events = [];
     this.scenario = scenario;
     if (scenario && !SCENARIOS[scenario]) throw new Error(`없는 시나리오: ${scenario}`);
-    this.plant = scenario ? new Plant(SCENARIOS[scenario], { layout, cells: this.cells, amr }) : null;
+    this.plant = scenario ? new Plant(SCENARIOS[scenario], { layout, cells: this.cells, amr, process }) : null;
   }
+
+  // 셀 GLB 에서 뽑은 기구(rigdata.js cellRig)를 셀 공정에 붙인다. 공정 시각은 그대로, 로봇 관절각·TCP 가 생긴다.
+  attachRig(id, rig) { return this.plant?.attachRig(id, rig) ?? null; }
 
   // 벽시계 dt(초)를 받아 배속을 곱하고 MAX_STEP 단위로 나눠 진행한다.
   advance(rdt) {
@@ -41,7 +45,13 @@ export class ViewerState {
     this.plant?.step(h, this);
   }
 
-  get amrs() { return this.plant?.fleet.amrs ?? []; }
+  // 두 플릿(도어트림 · 부속 부품) AMR 모두 — 목록·추적·hub. 지도·차체 그리기는 fleet(key) 로 플릿마다.
+  get amrs() { return this.plant?.allAmrs ?? []; }
+  get acs() { return this.plant?.acs ?? null; }
+  fleet(key) {
+    const acs = key === 'parts' ? this.plant?.supply?.acs ?? null : this.plant?.acs ?? null;
+    return { acs, amrs: acs?.amrs ?? [] };
+  }
 
   setLayout(doc) { this.plant?.setLayout(doc); }
 
@@ -82,7 +92,8 @@ export class ViewerState {
 
   // 카메라가 따라갈 AMR. 셀 선택과 함께 쓰지 않는다.
   follow(id) {
-    if (id !== null && !this.amrs.some((a) => a.id === id)) throw new Error(`없는 AMR: ${id}`);
+    const ok = id === null || this.amrs.some((a) => a.id === id) || this.plant?.hound?.id === id;
+    if (!ok) throw new Error(`없는 AMR: ${id}`);
     this.followed = id;
     if (id !== null) { this.selected = null; this.emit('select', { id: null }); }
     this.emit('follow', { id });

@@ -11,15 +11,20 @@ const fmtTime = (t) => {
 const amrDot = (a) => (a.battery < 30 ? 'low' : a.charging ? 'charge' : a.mode === 'park' && !a.steps.length ? '' : a.moving ? 'move' : 'wait');
 
 export class UI {
-  constructor({ onPlay, onSpeed, onSelect, onFollow, onScenario, onPlace, onDownload, onImport, onAdmin } = {}) {
-    this.cb = { onPlay, onSpeed, onSelect, onFollow, onScenario, onPlace, onDownload, onImport, onAdmin };
+  constructor({ onPlay, onSpeed, onSelect, onFollow, onScenario, onPlace, onDownload, onImport, onSave, onAdmin, onBuildMode } = {}) {
+    this.cb = { onPlay, onSpeed, onSelect, onFollow, onScenario, onPlace, onDownload, onImport, onSave, onAdmin, onBuildMode };
     this.lastLog = 0;
     this.el = {
       play: $('btnPlay'), speed: $('speedSeg'), clock: $('clock'), cells: $('cellList'), log: $('logList'),
-      status: $('statusLine'), build: $('buildBar'), place: $('placeSeg'),
-      dl: $('btnLayoutDl'), up: $('btnLayoutUp'), file: $('layoutFile'), admin: $('btnAdmin'),
-      scenario: $('scenarioSel'), fleet: $('fleetBox'), amrs: $('amrList'), fleetSum: $('fleetSum'),
+      status: $('statusLine'), build: $('buildBar'), place: $('placeSeg'), mode: $('buildMode'), hint: $('buildHint'),
+      dl: $('btnLayoutDl'), up: $('btnLayoutUp'), save: $('btnLayoutSave'), file: $('layoutFile'), admin: $('btnAdmin'),
+      scenario: $('scenarioSel'), fleet: $('fleetBox'), amrs: $('amrList'), fleetSum: $('fleetSum'), acs: $('acsLine'),
     };
+    this.el.mode?.addEventListener('click', (e) => {
+      const m = e.target.dataset?.mode;
+      if (m) this.cb.onBuildMode?.(m);
+    });
+    this.el.save?.addEventListener('click', () => this.cb.onSave?.());
 
     this.el.play.addEventListener('click', () => this.cb.onPlay?.());
     this.el.speed.innerHTML = SPEEDS.map((x) => `<button data-speed="${x}">${x}×</button>`).join('');
@@ -48,6 +53,28 @@ export class UI {
       if (f) this.cb.onImport?.(f);
     });
     this.el.admin?.addEventListener('click', () => this.cb.onAdmin?.());
+    this.bindPanels();
+  }
+
+  bindPanels() {
+    for (const p of document.querySelectorAll('.panel:not(.preview-tree)')) {
+      const btn = p.querySelector(':scope > .panel-head .panel-toggle');
+      if (!btn) continue;
+      const name = p.classList.contains('left') ? '셀 패널' : '로그 패널';
+      const apply = (closed) => {
+        p.classList.toggle('closed', closed);
+        btn.setAttribute('aria-expanded', String(!closed));
+        const title = closed ? `${name} 열기` : `${name} 접기`;
+        btn.title = title;
+        btn.setAttribute('aria-label', title);
+      };
+      apply(p.classList.contains('closed'));
+      btn.addEventListener('click', () => apply(!p.classList.contains('closed')));
+      p.addEventListener('click', (e) => {
+        if (!p.classList.contains('closed') || e.target.closest('.panel-toggle')) return;
+        apply(false);
+      });
+    }
   }
 
   // options: [{key,label}] — key '' 는 시나리오 없음
@@ -57,11 +84,21 @@ export class UI {
     this.el.scenario.value = current ?? '';
   }
 
-  setAdmin(on, cells = []) {
+  setAdmin(on, cells = [], mode = 'cells') {
     this.el.admin?.classList.toggle('on', on);
     if (!this.el.build) return;
     this.el.build.hidden = !on;
-    if (on) this.el.place.innerHTML = cells.map((c) => `<button type="button" data-place="${c.id}">${c.id}</button>`).join('');
+    if (!on) return;
+    for (const b of this.el.mode?.children ?? []) b.classList.toggle('on', b.dataset.mode === mode);
+    const route = mode === 'route' || mode === 'parts';
+    this.el.place.hidden = route;
+    this.el.place.innerHTML = route ? '' : cells.map((c) => `<button type="button" data-place="${c.id}">${c.id}</button>`).join('');
+    if (this.el.hint) {
+      const keys = '끌기 = 옮기기 · <b>Shift</b>+바닥 = 노드 추가(선택 노드와 연결) · <b>Shift</b>+노드 = 선택 노드와 간선(없음→양방향→단방향) · <b>Ctrl</b>+바닥 = 충전 자리 · <b>Del</b> = 지우기 · <b>X</b> = 셀 출구';
+      this.el.hint.innerHTML = mode === 'parts'
+        ? `부품 운송 AMR: 큰 주황 = 도킹 자리(창고 PARTS · SORT 투입 SORT:IN · 라인 도크 PRESS/SCREW:Lnn), 초록 = 입구. SORT 레인 칸은 도어트림과 같은 칸이다. ${keys}`
+        : route ? keys : '좌클릭 집기·놓기 · 우클릭 회전 · R 90°';
+    }
   }
 
   reset(state) {
@@ -90,10 +127,22 @@ export class UI {
       this.el.fleet.hidden = !state.plant;
       if (state.plant) {
         this.el.fleetSum.textContent = `${amrs.length}대 · 배송 ${state.plant.delivered}`;
-        this.el.amrs.innerHTML = amrs.map((a) => `
+        if (this.el.acs && state.acs) {
+          const s = state.acs.summary();
+          const locks = Object.entries(s.locks).map(([id, L]) => `${id} ${L.inside.length}/${state.acs.locks[id].cap}${L.line.length ? `+${L.line.length}` : ''}`).join(' · ');
+          this.el.acs.textContent = `ACS 미션 대기 ${s.queue} · ${locks}${s.issues.length ? ` · 경로 점검 ${s.issues.length}건` : ''}`;
+        }
+        const h = state.plant.hound;
+        const hound = h ? `
+          <li data-amr="${h.id}" class="${h.id === state.followed ? 'on' : ''}">
+            <b><span class="dot ${h.mode === 'nudge' ? 'low' : h.mode === 'goto' ? 'move' : 'charge'}"></span>견마</b>
+            <span class="task">${h.task}${h.job ? ` · ${h.job.ids.join(' · ')}` : ''}</span>
+            <span class="batt"><em>감지 ${h.seen} · 해소 ${h.fixed}</em></span>
+          </li>` : '';
+        this.el.amrs.innerHTML = hound + amrs.map((a) => `
           <li data-amr="${a.id}" class="${a.id === state.followed ? 'on' : ''}">
-            <b><span class="dot ${amrDot(a)}"></span>${a.id.slice(4)}</b>
-            <span class="task">${a.load ? `<i>#${a.load.id}→${a.load.dest}</i> ` : ''}${a.task}</span>
+            <b><span class="dot ${amrDot(a)}"></span>${a.id.replace(/^AMR-/, '').replace(/^P-AMR-/, 'P')}</b>
+            <span class="task">${a.off ? '운휴(충전 자리 없음)' : `${a.load ? `<i>#${a.load.id}→${a.load.dest ?? '대기'}</i> ` : ''}${a.task}`}</span>
             <span class="batt ${a.battery < 30 ? 'low' : ''}"><span style="width:${a.battery.toFixed(0)}%"></span><em>${a.battery.toFixed(0)}%</em></span>
           </li>`).join('');
       }

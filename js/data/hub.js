@@ -10,6 +10,7 @@ export function snapshot(state) {
     ...(state.plant ? {
       scenario: state.scenario,
       amrs: state.amrs.map((a) => ({ id: a.id, x: r2(a.x), z: r2(a.z), mode: a.mode, load: a.load?.dest ?? null, battery: r2(a.battery) })),
+      hound: state.plant.hound ? { id: state.plant.hound.id, x: r2(state.plant.hound.x), z: r2(state.plant.hound.z), mode: state.plant.hound.mode, task: state.plant.hound.task, seen: state.plant.hound.seen, fixed: state.plant.hound.fixed } : null,
     } : {}),
   };
 }

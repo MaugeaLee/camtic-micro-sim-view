@@ -25,29 +25,46 @@
   </div>
 </header>
 
-<aside class="panel left">
-  <h2>셀</h2>
-  <ul id="cellList" class="cells"></ul>
-  <div id="fleetBox" class="fleetbox" hidden>
-    <h2>공급 AMR <small id="fleetSum"></small></h2>
-    <ul id="amrList" class="amrs"></ul>
-    <p class="hint">셀·AMR 클릭 = 카메라 포커스 · Esc 해제. 사이클·대수·고장 시각은 가정값</p>
+<aside class="panel left" id="panelLeft">
+  <div class="panel-head">
+    <h2>셀</h2>
+    <button type="button" class="panel-toggle" aria-expanded="true" aria-controls="panelLeftBody" title="셀 패널 접기"></button>
   </div>
-  <div id="buildBar" class="buildbar" hidden>
-    <h2>짓기</h2>
-    <p class="hint">좌클릭 집기·놓기 · 우클릭 회전 · R 90°</p>
-    <div id="placeSeg" class="seg"></div>
-    <div class="build-actions">
-      <button type="button" id="btnLayoutDl">내려받기</button>
-      <button type="button" id="btnLayoutUp">올리기</button>
+  <div class="panel-body" id="panelLeftBody">
+    <ul id="cellList" class="cells"></ul>
+    <div id="fleetBox" class="fleetbox" hidden>
+      <h2>공급 AMR <small id="fleetSum"></small></h2>
+      <p id="acsLine" class="acsline"></p>
+      <ul id="amrList" class="amrs"></ul>
+      <p class="hint">셀·AMR 클릭 = 카메라 포커스 · Esc 해제. 사이클 시간은 가정값</p>
     </div>
-    <input id="layoutFile" type="file" accept="application/json,.json" hidden>
+    <div id="buildBar" class="buildbar" hidden>
+      <h2>짓기</h2>
+      <div id="buildMode" class="seg">
+        <button type="button" data-mode="cells">셀 배치</button>
+        <button type="button" data-mode="route">AMR 경로</button>
+        <button type="button" data-mode="parts" title="부품 운송 AMR 루트·도킹 자리(창고·SORT 투입·라인 도크)">부품 AMR 도크</button>
+      </div>
+      <p id="buildHint" class="hint"></p>
+      <div id="placeSeg" class="seg"></div>
+      <div class="build-actions">
+        <button type="button" id="btnLayoutSave" title="셀 자리와 AMR 경로를 서버 layout 파일로 저장">저장</button>
+        <button type="button" id="btnLayoutDl">내려받기</button>
+        <button type="button" id="btnLayoutUp">올리기</button>
+      </div>
+      <input id="layoutFile" type="file" accept="application/json,.json" hidden>
+    </div>
   </div>
 </aside>
 
-<aside class="panel right">
-  <h2>로그</h2>
-  <ul id="logList" class="log"></ul>
+<aside class="panel right" id="panelRight">
+  <div class="panel-head">
+    <button type="button" class="panel-toggle" aria-expanded="true" aria-controls="panelRightBody" title="로그 패널 접기"></button>
+    <h2>로그</h2>
+  </div>
+  <div class="panel-body" id="panelRightBody">
+    <ul id="logList" class="log"></ul>
+  </div>
 </aside>
 
 <footer class="bottombar"><span id="statusLine">부팅 중…</span></footer>

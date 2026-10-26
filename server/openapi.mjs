@@ -122,6 +122,17 @@ export function buildOpenApi(cfg) {
           },
         },
       },
+      [api.process]: {
+        get: {
+          tags: ['layout'],
+          summary: '셀 공정 정의(가정값): 스테이션 흐름·작업 지점·부품 치수·사이클. 읽기 전용',
+          operationId: 'getProcess',
+          responses: {
+            200: jsonRes({ type: 'object', required: ['version', 'assumed', 'cells'], properties: { version: { type: 'integer' }, assumed: { type: 'boolean' }, cells: { type: 'object' } } }, '공정 정의 JSON'),
+            500: jsonRes(schemaRef('Error'), '정의 파일 오류'),
+          },
+        },
+      },
       [api.openapi]: {
         get: {
           tags: ['docs'],
@@ -173,6 +184,7 @@ export function buildOpenApi(cfg) {
                 docs: { type: 'string' },
                 openapi: { type: 'string' },
                 layout: { type: 'string' },
+                process: { type: 'string' },
               },
             },
           },

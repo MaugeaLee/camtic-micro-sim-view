@@ -2,8 +2,8 @@
 import { CELLS } from '../js/sim/cells.js';
 import { FIELD } from '../js/render/field-def.js';
 import {
-  DEFAULT_POSES, FIELD_SIZE, LAYOUT_VERSION, SNAP, canPlace, defaultLayout, moveCell,
-  normalizeLayout, poseOf, snapCoord, snapRot, validateLayout,
+  DEFAULT_POSES, FIELD_SIZE, LAYOUT_VERSION, SNAP, canPlace, defaultLayout, layoutStamp, moveCell,
+  normalizeLayout, poseOf, snapCoord, snapRot, toLocal, toWorld, validateLayout,
 } from '../js/sim/layout.js';
 
 let pass = 0, fail = 0;
@@ -27,15 +27,72 @@ check('바닥 밖 거부', validateLayout({ ...base, cells: { ...base.cells, PRE
 const clash = moveCell(base, 'PRESS', poseOf(0, -2));
 check('겹치면 거부', clash.ok === false && clash.errors.some((e) => e.includes('겹침')));
 
-const ok = moveCell(base, 'PRESS', poseOf(-14, 6));
+check('기본 순서 서→동 SORT · PRESS · SCREW', base.cells.SORT.x < base.cells.PRESS.x && base.cells.PRESS.x < base.cells.SCREW.x);
+
+const ok = moveCell(base, 'PRESS', poseOf(4, 6));
 check('빈 칸 이동', ok.ok === true && ok.doc.cells.PRESS.z === 6 && validateLayout(ok.doc).length === 0);
 
-const rot = poseOf(-14, -2, 90);
+const rot = poseOf(4, -2, 90);
 check('90°는 발자국 교환 후에도 기본 자리 안', canPlace({ ...base, cells: { ...base.cells, PRESS: rot } }, 'PRESS', rot).length === 0);
 check('모르는 셀 거부', canPlace(base, 'A-3-1', poseOf(0, 0)).length > 0);
 
-const n = normalizeLayout({ version: 1, snap: 1, cells: { PRESS: { x: -13.6, z: -1.8, rotY: 10 }, SCREW: base.cells.SCREW, SORT: base.cells.SORT } });
-check('정규화 스냅', n.cells.PRESS.x === -14 && n.cells.PRESS.z === -2 && n.cells.PRESS.rotY === 0);
+const n = normalizeLayout({ version: 1, snap: 1, cells: { PRESS: { x: 3.6, z: -1.8, rotY: 10 }, SCREW: base.cells.SCREW, SORT: base.cells.SORT } });
+check('정규화 스냅', n.cells.PRESS.x === 4 && n.cells.PRESS.z === -2 && n.cells.PRESS.rotY === 0);
+
+// v2: AMR 경로·충전 자리·셀 지점
+check('v1 문서는 v2로 읽고 기본 AMR 경로를 붙인다', n.version === LAYOUT_VERSION && LAYOUT_VERSION === 2 && JSON.stringify(n.amr) === JSON.stringify(base.amr));
+check('기본 충전 자리 10개', base.amr.homes.length === 10);
+const badEdge = structuredClone(base);
+badEdge.amr.route.edges.push({ a: 'A0', b: 'NOPE' });
+check('없는 노드 간선 거부', validateLayout(badEdge).some((e) => e.includes('NOPE')), validateLayout(badEdge).join(' · '));
+const noDock = structuredClone(base);
+noDock.amr.cells.PRESS.stops = [];
+check('정차 칸 없는 셀 거부', validateLayout(noDock).length > 0);
+const out = structuredClone(base);
+out.amr.homes[0] = { x: 99, z: 0 };
+check('바닥 밖 충전 자리 거부', validateLayout(out).length > 0);
+const pose = { x: 4, z: -2, rotY: 90 }, p = { x: -1.83, z: 0.4 };
+const w = toWorld(pose, p), back = toLocal(pose, w);
+check('셀 로컬 ↔ 필드 왕복', Math.abs(back.x - p.x) < 1e-9 && Math.abs(back.z - p.z) < 1e-9);
+check('rotY 90°: 로컬 −x → 필드 +z (three rotation.y 와 같은 방향)', Math.abs(toWorld(pose, { x: -1, z: 0 }).z - (-2 + 1)) < 1e-9);
+check('스탬프에 AMR 경로 포함', layoutStamp(base) !== layoutStamp({ ...base, amr: { ...base.amr, homes: base.amr.homes.slice(1) } }));
+
+// 완료품 적재 구역(OUT): 셀이 아닌 자리. 예전 파일(sites 없음)도 읽고 기본 자리를 붙인다.
+{
+  const old = JSON.parse(JSON.stringify(base));
+  delete old.sites; delete old.amr.cells.OUT;
+  const n = normalizeLayout(old);
+  check('sites 없는 예전 파일도 통과 · 기본 OUT 자리·AMR 지점 붙음', validateLayout(old).length === 0 && n.sites.OUT && n.amr.cells.OUT?.stops.length === 1, JSON.stringify(n.sites));
+  const bad = { ...base, sites: { OUT: { x: DEFAULT_POSES.PRESS.x, z: DEFAULT_POSES.PRESS.z, rotY: 0 } } };
+  check('OUT 이 셀과 겹치면 오류', validateLayout(bad).some((e) => e.includes('OUT·PRESS')), validateLayout(bad).join(' · '));
+  check('모르는 자리면 오류', validateLayout({ ...base, sites: { XX: { x: 0, z: 0 } } }).some((e) => e.includes('XX')));
+}
+
+// 부속 부품 AMR 루트(parts): 도어트림 루트(amr)와 따로. 창고 PARTS 자리 · 라인 도크 「셀:라인」(셀 로컬).
+{
+  check('기본: 부품 창고 자리 · 부품 루트 · 충전 자리 6 · 도크 8 + 창고 + SORT 투입', !!base.sites.PARTS && base.parts.homes.length === 6
+    && Object.keys(base.parts.cells).length === 10 && !!base.parts.cells['PRESS:L01'] && !!base.parts.cells.PARTS
+    && base.parts.cells['SORT:IN']?.exit === null && base.parts.cells['SORT:IN'].stops.length === 1);
+  check('SORT 도어트림 정지점 7: 대기 2 · 레인 A–D · 듀얼', base.amr.cells.SORT.stops.length === 7);
+  check('도어트림 루트에는 부품 도크가 없다(완료품 동쪽 도크 PRESS:OUT·SCREW:OUT 은 있음)',
+    !Object.keys(base.amr.cells).some((id) => id === 'PARTS' || id.startsWith('SORT:') || id.includes(':L'))
+    && !!base.amr.cells['PRESS:OUT'] && !!base.amr.cells['SCREW:OUT']);
+  const old = JSON.parse(JSON.stringify(base));
+  delete old.parts; delete old.sites.PARTS;
+  const n = normalizeLayout(old);
+  check('parts 없는 예전 파일도 통과 · 기본 부품 루트·창고 붙음', validateLayout(old).length === 0 && JSON.stringify(n.parts) === JSON.stringify(base.parts) && !!n.sites.PARTS);
+  const bad = structuredClone(base);
+  bad.parts.route.edges.push({ a: 'Q0', b: 'NOPE' });
+  check('부품 루트 오류는 「부품 AMR」 머리로', validateLayout(bad).some((e) => e.startsWith('부품 AMR') && e.includes('NOPE')), validateLayout(bad).join(' · '));
+  const doc = JSON.parse(await (await import('node:fs/promises')).readFile(new URL('../src/process.default.json', import.meta.url), 'utf8'));
+  const off = [];
+  for (const [id, C] of Object.entries(doc.cells)) for (const L of C.lines ?? []) {
+    const d = base.parts.cells[`${id}:${L.id}`];
+    const north = L.gantry.stock > 0;
+    if (!d || Math.abs(d.stops[0].x - L.x) > 1e-9 || Math.sign(d.stops[0].z) !== (north ? 1 : -1)) off.push(`${id}:${L.id}`);
+  }
+  check('라인 도크 x = 공정 정의 라인 x · 적재 팔레트 쪽(남·북)', off.length === 0, off.join(','));
+}
 
 console.log(`  ${pass} pass, ${fail} fail`);
 process.exitCode = fail ? 1 : 0;

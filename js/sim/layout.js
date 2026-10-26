@@ -1,31 +1,47 @@
 // 셀 바닥 자리. DOM 없음. 좌표는 필드 원점 기준, 1 = 1 m. rotY 는 도(0·90·180·270).
 // 발자국은 GLB 바닥 AABB 가정(PRESS/SCREW ≈ 10.1×10.8 m, SORT ≈ 16.6×9.5 m). 실측 아님.
 import { CELLS } from './cells.js';
+import { PARTS_IDS, defaultAmr, defaultPartsAmr, normalizeAmr, validateAmr } from './amrdata.js';
 
 // field-def.js FIELD.size 와 같아야 한다. sim은 render를 import 하지 않는다.
-export const FIELD_SIZE = Object.freeze({ w: 48, d: 30 });
+export const FIELD_SIZE = Object.freeze({ w: 76, d: 30 });
 
-export const LAYOUT_VERSION = 1;
+// 2: amr(메인 루트·충전 자리·셀 AMR 지점) 추가. 1 은 읽을 때 기본 amr 을 붙인다.
+export const LAYOUT_VERSION = 2;
+const READS = new Set([1, 2]);
 export const SNAP = 1;
 
 export const FOOTPRINT = Object.freeze({
   PRESS: Object.freeze({ w: 10.1, d: 10.82 }),
   SCREW: Object.freeze({ w: 10.1, d: 10.82 }),
   SORT: Object.freeze({ w: 16.56, d: 9.45 }),
+  OUT: Object.freeze({ w: 10.1, d: 10.82 }),
+  PARTS: Object.freeze({ w: 6, d: 2 }),
 });
 
-// 세 셀이 통로(+z)를 비우고 한 줄로 서게 한 가정 자리. 겹침 없음.
+// 셀이 아닌 AMR 자리(GLB 없음, 절차 형상). OUT = 완료품 적재 구역(협동로봇 + 책장), PARTS = 부속 부품 창고. 자리·크기는 가정이다.
+// OUT 은 PRESS 발자국과 같은 10.1×10.82 m, SORT 서쪽(기본 −30, −2)에 따로 둔다. 예전 SORT 옆 5×3 통과형은 셀과 겹친다.
+// PARTS 는 남쪽 통로의 PRESS 도크 구역과 SCREW 도크 구역 사이(접속 구역이 도크 구역과 합쳐지면 도크에서 다음 미션을 기다리는 차가 길을 막는다).
+// 레이아웃 파일에 없으면 기본 자리를 붙인다(예전 파일도 그대로 읽힌다).
+export const SITES = Object.freeze(['OUT', 'PARTS']);
+export const DEFAULT_SITES = Object.freeze({
+  OUT: Object.freeze({ x: -30, z: -2, rotY: 0 }),
+  PARTS: Object.freeze({ x: 10, z: -14, rotY: 0 }),
+});
+
+// 가정 자리. 서→동 SORT · PRESS · SCREW 한 줄, 통로(+z)는 비운다.
+// 셀 GLB AMR 통로 입구가 서쪽 끝이라 셀 서쪽마다 AMR 세로 통로 칸(폭 2.7~3.9 m)을 남긴다. 겹침 없음.
 export const DEFAULT_POSES = Object.freeze({
-  PRESS: Object.freeze({ x: -14, z: -2, rotY: 0 }),
-  SCREW: Object.freeze({ x: 0, z: -2, rotY: 0 }),
-  SORT: Object.freeze({ x: 14, z: -2, rotY: 0 }),
+  SORT: Object.freeze({ x: -13, z: -2, rotY: 0 }),
+  PRESS: Object.freeze({ x: 4, z: -2, rotY: 0 }),
+  SCREW: Object.freeze({ x: 18, z: -2, rotY: 0 }),
 });
 
 const IDS = CELLS.map((c) => c.id);
 const ROTS = new Set([0, 90, 180, 270]);
 
 export function defaultLayout() {
-  return { version: LAYOUT_VERSION, snap: SNAP, cells: { ...DEFAULT_POSES } };
+  return { version: LAYOUT_VERSION, snap: SNAP, cells: { ...DEFAULT_POSES }, sites: { ...DEFAULT_SITES }, amr: defaultAmr(), parts: defaultPartsAmr() };
 }
 
 export function snapCoord(v, snap = SNAP) {
@@ -69,7 +85,24 @@ export function overlaps(idA, poseA, idB, poseB) {
 export function validateLayout(raw, field = FIELD_SIZE) {
   const errors = [];
   if (!raw || typeof raw !== 'object') return ['레이아웃이 객체 아님'];
-  if (raw.version !== LAYOUT_VERSION) errors.push(`version은 ${LAYOUT_VERSION}`);
+  if (!READS.has(raw.version)) errors.push(`version은 ${[...READS].join('·')}`);
+  if (raw.amr != null) errors.push(...validateAmr(raw.amr, IDS, field.size ?? field));
+  if (raw.parts != null) errors.push(...validateAmr(raw.parts, [], field.size ?? field).map((e) => `부품 AMR ${e}`));
+  if (raw.sites != null) {
+    if (typeof raw.sites !== 'object') errors.push('sites가 객체 아님');
+    else {
+      for (const [id, p] of Object.entries(raw.sites)) {
+        if (!SITES.includes(id)) { errors.push(`모르는 자리 ${id}`); continue; }
+        if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.z) || (p.rotY != null && !Number.isFinite(p.rotY))) { errors.push(`${id} x·z는 수`); continue; }
+        const pose = poseOf(p.x, p.z, p.rotY ?? 0, raw.snap || SNAP);
+        if (!insideField(id, pose, field)) errors.push(`${id}가 바닥 밖`);
+        for (const c of IDS) {
+          const q = raw.cells?.[c];
+          if (q && Number.isFinite(q.x) && Number.isFinite(q.z) && overlaps(id, pose, c, poseOf(q.x, q.z, q.rotY ?? 0, raw.snap || SNAP))) errors.push(`${id}·${c} 겹침`);
+        }
+      }
+    }
+  }
   if (!Number.isFinite(raw.snap) || raw.snap <= 0) errors.push('snap은 양수');
   const cells = raw.cells;
   if (!cells || typeof cells !== 'object') return [...errors, 'cells 없음'];
@@ -101,7 +134,16 @@ export function normalizeLayout(raw) {
     const p = raw?.cells?.[id] ?? DEFAULT_POSES[id];
     cells[id] = poseOf(p.x, p.z, p.rotY ?? 0, snap);
   }
-  const doc = { version: LAYOUT_VERSION, snap, cells };
+  const sites = {};
+  for (const id of SITES) {
+    const p = raw?.sites?.[id] ?? DEFAULT_SITES[id];
+    sites[id] = poseOf(p.x, p.z, p.rotY ?? 0, snap);
+  }
+  const doc = {
+    version: LAYOUT_VERSION, snap, cells, sites,
+    amr: normalizeAmr(raw?.amr, [...IDS, 'OUT', 'PRESS:OUT', 'SCREW:OUT']),
+    parts: normalizeAmr(raw?.parts ?? defaultPartsAmr(), PARTS_IDS, defaultPartsAmr()),
+  };
   if (raw?.rev != null) doc.rev = raw.rev;
   return doc;
 }
@@ -114,6 +156,7 @@ export function canPlace(doc, id, pose, field = FIELD_SIZE) {
     if (other === id) continue;
     if (overlaps(id, pose, other, doc.cells[other])) errors.push(`${id}·${other} 겹침`);
   }
+  for (const s of SITES) if (doc.sites?.[s] && overlaps(id, pose, s, doc.sites[s])) errors.push(`${id}·${s} 겹침`);
   return errors;
 }
 
@@ -124,5 +167,27 @@ export function moveCell(doc, id, pose) {
 }
 
 export function layoutStamp(doc) {
-  return JSON.stringify({ rev: doc.rev ?? null, cells: doc.cells });
+  return JSON.stringify({ rev: doc.rev ?? null, cells: doc.cells, sites: doc.sites ?? null, amr: doc.amr ?? null, parts: doc.parts ?? null });
+}
+
+// 셀·자리 pose(셀이 먼저). 부품 도크 id 「셀:라인」은 그 셀 pose(지점은 셀 로컬).
+export const placeOf = (doc, id) => doc.cells[id] ?? doc.sites?.[id] ?? doc.cells[String(id).split(':')[0]] ?? null;
+
+// 부품 AMR 루트를 ACS 가 읽는 모양으로: amr 자리에 parts 를 둔 레이아웃 보기. SORT 레인은 도어트림 루트의 것을 같이 쓴다
+// (같은 칸·같은 잠금 — 레인 칸을 한쪽만 고치면 두 플릿이 다른 자리에 선다).
+export const partsLayout = (doc) => ({
+  ...doc,
+  amr: doc.amr?.cells?.SORT ? { ...doc.parts, cells: { ...doc.parts.cells, SORT: doc.amr.cells.SORT } } : doc.parts,
+});
+
+// 셀 로컬 ↔ 필드 좌표. three Object3D rotation.y = rotY(도) 와 같은 회전.
+export function toWorld(pose, p) {
+  const t = (pose.rotY * Math.PI) / 180, c = Math.cos(t), s = Math.sin(t);
+  return { x: pose.x + p.x * c + p.z * s, z: pose.z - p.x * s + p.z * c };
+}
+
+export function toLocal(pose, p) {
+  const t = (pose.rotY * Math.PI) / 180, c = Math.cos(t), s = Math.sin(t);
+  const dx = p.x - pose.x, dz = p.z - pose.z;
+  return { x: dx * c - dz * s, z: dx * s + dz * c };
 }
