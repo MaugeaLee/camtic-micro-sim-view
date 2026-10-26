@@ -6,7 +6,7 @@ import { AMR, Amr, sense } from './fleet.js';
 import { attach, cellGeo, cutAt, graphOf, headingOf, journey, pathLength, routeIssues } from './route.js';
 
 export const HOLD = 2.0;          // 셀 접속점 앞 진입 대기 거리(최소). 교차 구역 밖으로 더 물러날 수 있다
-export const SPUR_HOLD = 12;      // OUT·PRESS:OUT·SCREW:OUT: 세로 지선이 출차 길이라 북쪽 통로 쪽에서 기다린다
+export const SPUR_HOLD = 12;      // OUT·PRESS:OUT·SCREW:OUT·SORT:RAW: 세로 지선이 출차 길이라 통로 쪽에서 기다린다
 export const ZONE_R = 1.8;        // 교차 구역 반경: 양 차로(±0.7) + 차체 + 여유
 const PRE = 1.0;                  // 도크·충전 자리 앞 저속 진입 구간
 const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
@@ -77,16 +77,43 @@ export function junctions(graph, cells) {
 export const CROSS_R = 2.3;
 
 // 두 루트 그래프(다른 플릿)의 간선이 만나는 점마다 교차로 구역. 두 ACS 가 같은 구역 객체를 같이 잡는다(한 대씩).
+function closestOnSeg(p, a, b) {
+  const ab = { x: b.x - a.x, z: b.z - a.z }, L2 = ab.x * ab.x + ab.z * ab.z;
+  const t = L2 ? Math.max(0, Math.min(1, ((p.x - a.x) * ab.x + (p.z - a.z) * ab.z) / L2)) : 0;
+  return { x: a.x + ab.x * t, z: a.z + ab.z * t };
+}
+
+function segNear(a, b, c, d) {
+  let best = { d: Infinity, x: 0, z: 0 };
+  const hit = (p, q) => {
+    const g = Math.hypot(p.x - q.x, p.z - q.z);
+    if (g < best.d) best = { d: g, x: q.x, z: q.z };
+  };
+  hit(a, closestOnSeg(a, c, d));
+  hit(b, closestOnSeg(b, c, d));
+  hit(closestOnSeg(c, a, b), c);
+  hit(closestOnSeg(d, a, b), d);
+  return best;
+}
+
 export function crossings(gA, gB) {
   const out = [];
   for (const e of gA.edges) for (const f of gB.edges) {
     const r = { x: e.pb.x - e.pa.x, z: e.pb.z - e.pa.z }, s = { x: f.pb.x - f.pa.x, z: f.pb.z - f.pa.z };
     const d = r.x * s.z - r.z * s.x;
-    if (Math.abs(d) < 1e-9) continue;
-    const qx = f.pa.x - e.pa.x, qz = f.pa.z - e.pa.z;
-    const t = (qx * s.z - qz * s.x) / d, u = (qx * r.z - qz * r.x) / d;
-    if (t < 0 || t > 1 || u < 0 || u > 1) continue;
-    out.push({ x: e.pa.x + r.x * t, z: e.pa.z + r.z * t, r: CROSS_R, holder: null, cells: [], cross: true });
+    const lr = Math.hypot(r.x, r.z) || 1, ls = Math.hypot(s.x, s.z) || 1;
+    if (Math.abs(d) >= 1e-9) {
+      const qx = f.pa.x - e.pa.x, qz = f.pa.z - e.pa.z;
+      const t = (qx * s.z - qz * s.x) / d, u = (qx * r.z - qz * r.x) / d;
+      if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
+        out.push({ x: e.pa.x + r.x * t, z: e.pa.z + r.z * t, r: CROSS_R, holder: null, cells: [], cross: true });
+        continue;
+      }
+    }
+    // 거의 수직인데 구간이 1 m 안팎으로만 스치면(입고 지선이 부품 남행 옆에서 꺾임) 부품 쪽 最近点에 작은 구역.
+    if (Math.abs(d) / (lr * ls) < 0.5) continue;
+    const near = segNear(e.pa, e.pb, f.pa, f.pb);
+    if (near.d > 0.2 && near.d < 1.3) out.push({ x: near.x, z: near.z, r: 1.2, holder: null, cells: [], cross: true });
   }
   return out;
 }
@@ -231,6 +258,7 @@ export class Acs {
     a.at = { kind: 'home', i: a.idx };
     a.inBranch = null; a.waitFor = null; a.bound = null; a.zoneWait = null;
     a.blockedOn = null; a.blockT = 0; a.passT = 0; a.holdFor = null; a.v = 0; a.moving = false; a.charging = false;
+    a.docked = true;
     if (h) { a.home = a.idx; a.x = h.x; a.z = h.z; a.heading = h.heading; }
   }
 
@@ -245,6 +273,7 @@ export class Acs {
   // mission: { from, ready(), load(a) → 짐, dest(짐) → 셀 id, canDrop(id), drop(짐, id), abort(a),
   //            pickup?(a, id) / unload?(a, id) → 티켓 {released} — 셀이 다 받거나 내줬을 때 released (없으면 4초),
   //            what?: { pick, wait, hand, carry(id, 짐) } 작업 문구 }
+  // from 이 없으면 지금 자리(충전 자리)에서 싣고 dest 로 간다(도어트림 입고 가정).
   // dest 가 null 이면 받을 곳이 없다 — 싣은 채 충전 자리에서 기다렸다가 다시 묻는다(셀 진입 차로를 막지 않게).
   request(m) { m.id = ++this.missionSeq; this.queue.push(m); return m; }
   get pending() { return this.pendingFrom(null); }
@@ -253,7 +282,7 @@ export class Acs {
     const mine = (m) => from == null || m.from === from;
     return this.queue.filter(mine).length + this.amrs.filter((a) => a.mission && !a.load && mine(a.mission)).length;
   }
-  ok(id) { return !!this.cells[id] && !this.check.badCells.has(id); }
+  ok(id) { return id == null || (!!this.cells[id] && !this.check.badCells.has(id)); }
 
   step(h) {
     this.assign();
@@ -270,16 +299,17 @@ export class Acs {
   assign() {
     while (this.queue.length) {
       const m = this.queue[0];
-      if (!this.ok(m.from)) return;
-      const a = this.pickAmr(m.from);
+      if (m.from != null && !this.ok(m.from)) return;
+      const a = this.pickAmr(m.from, m);
       if (!a) return;
       this.queue.shift();
       this.start(a, m);
     }
   }
 
-  pickAmr(from) {
-    const target = this.cells[from].entry;
+  pickAmr(from, m) {
+    const id = from ?? (typeof m?.dest === 'function' ? m.dest() : m?.dest);
+    const target = (id && this.cells[id]?.entry) || this.homes[0];
     const free = this.amrs.filter((a) => !a.off && a.mode === 'park' && a.idle && a.battery >= (a.lowLock ? AMR.battery.ready : AMR.battery.low));
     free.sort((a, b) => dist(a, target) - dist(b, target) || a.idx - b.idx);
     return free[0] ?? null;
@@ -287,7 +317,31 @@ export class Acs {
 
   start(a, m) {
     a.mission = m; a.mode = 'job'; a.lowLock = false;
+    if (!m.from) {
+      // 입고: 충전 자리에서 싣고 dest 로. 셀에 서 있으면 먼저 충전 자리로(같은 도크에서 다시 싣지 않게).
+      const steps = [];
+      if (a.at?.kind !== 'home') {
+        const H = this.homes[a.home];
+        const leg = H ? this.travel(a, a.at, { kind: 'home', i: a.home }) : null;
+        if (leg) steps.push(...leg, { face: H.heading }, { do: () => { a.at = { kind: 'home', i: a.home }; } });
+      }
+      a.setTask(m.what?.pick ?? '원재료 적재', [
+        ...steps,
+        { until: () => m.ready(), label: m.what?.wait ?? '원재료 적재 대기' },
+        ...this.handover(a, m.pickup, m.what?.tag ?? '입고', m.what?.hand ?? '적재'),
+        { do: () => { a.ticket = null; a.load = m.load(a); this.deliver(a); } },
+      ]);
+      return;
+    }
     const C = this.cells[m.from];
+    if (a.at?.kind === 'cell' && a.at.id === C.id) {
+      a.setTask(m.what?.pick ?? `${C.id} 픽업으로`, [
+        { until: () => m.ready(), label: m.what?.wait ?? `${C.id} 키트 대기` },
+        ...this.handover(a, m.pickup, m.what?.tag ?? C.id, m.what?.hand ?? '적재'),
+        { do: () => { a.ticket = null; a.load = m.load(a); this.deliver(a); } },
+      ]);
+      return;
+    }
     const leg = this.travel(a, a.at, { kind: 'cell', id: C.id });
     if (!leg) { this.queue.unshift(m); a.mission = null; a.mode = 'park'; return; }
     a.setTask(m.what?.pick ?? `${C.id} 픽업으로`, [
@@ -303,10 +357,17 @@ export class Acs {
   // 없으면 정해진 4초.
   handover(a, fn, id, what) {
     if (!fn) return [{ wait: 4, label: `${id} ${what} 중` }];
-    return [
-      { do: () => { a.ticket = fn(a, id) ?? { released: true }; } },
-      { until: () => a.ticket.released, label: `${id} ${what} 중` },
-    ];
+    return [{
+      until: () => {
+        if (a.ticket?.released) return true;
+        if (a.ticket) return false;
+        const t = fn(a, id);
+        if (t === false) return false;
+        a.ticket = t ?? { released: true };
+        return !!a.ticket.released;
+      },
+      label: `${id} ${what} 중`,
+    }];
   }
 
   deliver(a) {
@@ -321,7 +382,7 @@ export class Acs {
       ...leg,
       ...this.enterStops(a, D),
       { until: () => m.canDrop(id), label: `${id} 하역 대기` },
-      ...this.handover(a, m.unload, id, '하역'),
+      ...this.handover(a, m.unload, m.what?.dock ?? id, '하역'),
       { do: () => { a.ticket = null; m.drop(a.load, id); a.load = null; a.mission = null; this.after(a); } },
     ]);
   }
@@ -344,7 +405,10 @@ export class Acs {
   after(a) {
     if (a.battery < AMR.battery.low) { a.lowLock = true; this.note?.(a, `배터리 ${a.battery.toFixed(0)}% — 충전 복귀`); this.goHome(a, '충전 복귀', a.at); return; }
     const m = this.queue[0];
-    if (m && this.ok(m.from) && !this.sameHub(a.at, m.from)) { this.queue.shift(); this.start(a, m); return; }
+    // 입고(SORT:RAW) 직후 북쪽 양팔 도크(SORT) 적재로 이어 가면 충전 왕복을 줄인다. 같은 접속점(G2)은 충전 자리로 뺀다.
+    if (m && !m.raw && this.ok(m.from) && (a.at?.kind === 'cell' && a.at.id === m.from || !this.sameHub(a.at, m.from))) {
+      this.queue.shift(); this.start(a, m); return;
+    }
     this.goHome(a, '충전 자리 복귀', a.at);
   }
 
@@ -404,7 +468,7 @@ export class Acs {
       // SCREW 투입은 G2 지선이 PRESS:OUT 출차 길과 같다. 충전 자리에서 잠금이 풀릴 때까지 기다려 지선에 서지 않는다.
       const at = (id === 'SCREW' && from.kind === 'home')
         ? null
-        : this.holdAt(mid, L, this.cells[id].dead && (id.includes(':') || id === 'OUT'));
+        : this.holdAt(mid, L, this.cells[id].dead && id !== 'SORT:RAW' && (id.includes(':') || id === 'OUT'));
       const wait = () => { a.waitFor = id; const ok = this.acquire(id, a); if (ok) a.waitFor = null; return ok; };
       if (at === null) {
         // 접속점끼리 너무 가까워 구역 밖 대기 자리가 없다 → 출발 전에(지금 자리에서) 잠금부터 잡는다.

@@ -61,7 +61,7 @@ export function mainPath(graph, S, T) {
   const segs = (pts, offs) => pts.slice(1).map((q, i) => ({ p: pts[i], q, off: offs[i] }));
   if (S.edge === T.edge) {
     const e = S.edge;
-    if (!e.oneway || T.t >= S.t - 1e-9) return dist(S.point, T.point) < 1e-6 ? [] : segs([S.point, T.point], [!e.oneway]);
+    if (!e.oneway || T.t >= S.t - 1e-9) return dist(S.point, T.point) < 1e-6 ? [] : segs([S.point, T.point], [!e.oneway && !e.center]);
   }
   // Dijkstra. 출발: S → 간선 끝점(단방향이면 b만). 도착: 끝점 → T(단방향이면 a만).
   const adj = new Map();
@@ -96,7 +96,7 @@ export function mainPath(graph, S, T) {
   const chain = [];
   for (let k = best.end; k !== 'S'; k = prev.get(k).from) chain.unshift({ id: k, e: prev.get(k).e });
   const pts = [S.point, ...chain.map((c) => graph.nodes.get(c.id)), T.point];
-  const offs = [...chain.map((c) => !c.e.oneway), !te.oneway];
+  const offs = [...chain.map((c) => !c.e.oneway && !c.e.center), !te.oneway && !te.center];
   return segs(pts, offs).filter((s) => dist(s.p, s.q) > 1e-6);
 }
 
@@ -170,7 +170,7 @@ export function routeIssues(layout) {
   const boxes = Object.keys(all).map((id) => ({ id, b: bounds(id, all[id]) })).filter((x) => x.b);
   const hits = (p, skip = null) => boxes.find(({ id, b }) => id !== skip && p.x > b.x0 - BODY_R && p.x < b.x1 + BODY_R && p.z > b.z0 - BODY_R && p.z < b.z1 + BODY_R);
   for (const e of graph.edges) {
-    const lanes = e.oneway ? [0] : [-1, 1];
+    const lanes = e.oneway || e.center ? [0] : [-1, 1];
     const d = unit(sub(e.pb, e.pa)), r = right(d), L = dist(e.pa, e.pb);
     for (const s of lanes) {
       for (let t = 0; t <= L; t += 0.25) {

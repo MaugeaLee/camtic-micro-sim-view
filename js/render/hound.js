@@ -85,7 +85,7 @@ export class HoundView {
     this.root.visible = true;
     this.root.position.set(view.x, 0, view.z);
     this.root.rotation.y = view.heading;
-    const walk = view.mode === 'patrol' || view.mode === 'goto' || view.mode === 'return';
+    const walk = !!view.moving;
     const t = view.gait;
     this.legs.forEach(({ hip, knee }, i) => {
       const ph = t * 10 + (i === 0 || i === 3 ? 0 : Math.PI);

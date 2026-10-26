@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { NO_SERVER } from './core/env.js';
 import { runtime, assetUrl, apiPath } from './core/runtime.js';
 import { CELLS } from './sim/cells.js';
-import { FOOTPRINT, canPlace, defaultLayout, extent, layoutStamp, normalizeLayout, partsLayout, placeOf, poseOf, toLocal, validateLayout } from './sim/layout.js';
+import { FOOTPRINT, SITE_SPUR, canPlace, defaultLayout, extent, layoutStamp, normalizeLayout, partsLayout, placeItem, placeOf, poseOf, toLocal, translateSpur, moveSpurEnd, rotateSpur, validateLayout } from './sim/layout.js';
 import { ViewerState } from './sim/state.js';
 import { AMR_MAX, DEFAULT_SCENARIO, SCENARIOS } from './sim/scenario.js';
 import { mapOf, routeGeo } from './sim/acs.js';
@@ -15,7 +15,8 @@ import { CellView } from './render/view.js';
 import { FleetView } from './render/fleet.js';
 import { CameraRig } from './render/camera.js';
 import { Picker } from './render/pick.js';
-import { FIELD } from './render/field-def.js';
+import { CCTV, FIELD, MONITOR, validateMonitor } from './render/field-def.js';
+import { ControlMonitor } from './render/monitor.js';
 import { buildField } from './render/field.js';
 import { PlaceTool } from './render/place.js';
 import { RouteEditTool } from './render/route-edit.js';
@@ -42,6 +43,8 @@ const AMR_COUNT = Number.isInteger(amrParam) && amrParam >= 1 && amrParam <= AMR
 const stage = createStage(document.getElementById('viewport'));
 const field = buildField(stage.scene, FIELD);
 stage.fitShadow(FIELD.size.w, FIELD.size.d);
+// 관제 모니터(뒷벽 · 내부 CCTV). ?cctv=0 이면 끔(저사양).
+const monitor = params.get('cctv') === '0' ? null : new ControlMonitor(stage, FIELD, MONITOR, CCTV);
 const view = new CellView(stage.scene);
 const fleetView = new FleetView(stage.scene);
 // 부속 부품 AMR: 노란 차체 · 청록 통로선(도어트림 AMR 흰 차체 · 노란 통로선과 구분)
@@ -62,7 +65,12 @@ const ui = new UI({
   },
   onFollow: (id) => state.follow(state.followed === id ? null : id),
   onScenario: (key) => { scenarioKey = key; start(); },
-  onPlace: (id) => { if (place) { place.pick(id); state.select(id); place.selected = id; } },
+  onPlace: (id) => {
+    if (!place) return;
+    place.pick(id);
+    place.selected = id;
+    if (state.cell(id)) state.select(id);
+  },
   onDownload: downloadLayout,
   onImport: importLayoutFile,
   onSave: saveLayout,
@@ -115,6 +123,7 @@ function start() {
   partsView.clear();
   view.setup(state, { extent });
   view.applyLayout(layout);
+  aimCctv();
   fleetView.setup(state);
   partsFleetView.setTop(processDoc?.supply?.top ?? null);
   partsFleetView.setup(state);
@@ -130,12 +139,25 @@ function start() {
     if (processDoc) state.log('info', '셀 공정 정의 적용(가정)', { obs: `키트·부품 엔티티 · ${Object.keys(state.plant.work).join('·') || '없음'} 셀 안 공정` });
   }
   logRouteIssues();
+  if (monitor) {
+    const errs = validateMonitor(MONITOR, CCTV, FIELD, [...Object.keys(layout.cells), ...Object.keys(layout.sites ?? {})]);
+    if (errs.length) state.log('warn', '관제 모니터 정의 점검', { obs: errs.join(' · ') });
+    else state.log('info', '관제 모니터', { obs: `뒷벽 화면 · 내부 CCTV ${CCTV.length}대(가상 카메라, 가정) · 녹화·감지 없음` });
+  }
   state.setSpeed(speed);
   if (running) state.setRunning(true);
   ui.reset(state);
   ui.setAdmin(admin, state.cells, buildMode);
   if (admin) state.log('info', 'Admin 모드', { obs: buildHint() });
 }
+
+// CCTV 는 셀·자리를 겨눈다 — 배치가 바뀌면 따라간다.
+function aimCctv() {
+  if (!monitor) return;
+  monitor.setPlaces((id) => placeOf(layout, id));
+}
+
+const hms = (t) => [t / 3600, (t / 60) % 60, t % 60].map((v) => String(Math.floor(v)).padStart(2, '0')).join(':');
 
 // 시나리오가 없으면 ACS 가 없으니 레이아웃에서 지도를 바로 만든다.
 function showStaticMap() {
@@ -236,6 +258,7 @@ async function loadWorkModel() {
 function applyLayout(doc) {
   layout = normalizeLayout(doc);
   view.applyLayout(layout);
+  aimCctv();
   state?.setLayout(layout);
   showStaticMap();
   if (place) place.setLayout(layout);
@@ -326,7 +349,7 @@ function startPoll() {
 function buildHint() {
   return buildMode === 'route' || buildMode === 'parts'
     ? `${buildMode === 'parts' ? '부품 AMR 도킹 자리(큰 주황) · ' : ''}끌기 = 옮기기 · Shift+바닥 = 노드 추가 · Shift+노드 = 간선 바꾸기 · Ctrl+바닥 = 충전 자리 · Del = 지우기 · X = 셀 출구`
-    : '좌클릭으로 집고 놓는다 · R 90°';
+    : '좌클릭으로 셀·완료품·창고를 집고 놓는다 · 노란 레일 몸통 = 옮기기 · 끝점 = 늘리기/줄이기 · R 90°';
 }
 
 function enableTool() {
@@ -345,9 +368,24 @@ function enableTool() {
   }
   place = new PlaceTool(stage, view, floor, {
     onChange: (doc) => commitLayout(doc, null),
-    canPlace, poseOf, extent,
+    onPreview: previewPlace,
+    canPlace, poseOf, extent, placeItem, translateSpur, moveSpurEnd, rotateSpur,
+    sites: [outView.root, depotView.root],
+    spur: SITE_SPUR,
   });
   place.setLayout(layout);
+}
+
+function previewPlace(doc) {
+  view.applyLayout(doc);
+  const plant = state?.plant;
+  if (plant?.proc) outView.update(plant.work.OUT?.view() ?? null, plant.proc.kit.size, placeOf(doc, 'OUT'));
+  else outView.update(null);
+  depotView.update(placeOf(doc, 'PARTS'));
+  if (!plant) {
+    fleetView.showMap(routeOps.mapOf(doc));
+    partsFleetView.showMap(doc.parts ? routeOps.mapOf(partsLayout(doc)) : null);
+  }
 }
 
 function disableTools() {
@@ -369,6 +407,7 @@ function commitLayout(doc, why) {
   }
   layout = normalizeLayout(doc);
   state?.setLayout(layout);
+  aimCctv();
   showStaticMap();
   if (routeTool) routeTool.setLayout(layout);
   if (place) place.setLayout(layout);
@@ -423,6 +462,7 @@ function frame() {
   drawWork();
   for (const ev of events) focusSelection(ev);
   rig.update(rdt);
+  monitor?.update(rdt, `CCTV  ${hms(state.time)}`);
   stage.render();
   if ((uiAcc += rdt) >= 0.25) { uiAcc = 0; ui.update(state); }
 }
@@ -456,6 +496,8 @@ if (warp > 0 || focusId) {
   drawWork();
   for (const ev of events) focusSelection(ev);
   rig.update(2);
+  monitor?.update(0, `CCTV  ${hms(state.time)}`);
+  monitor?.refresh();
   ui.update(state);
 }
 const statusUrl = apiPath('status');

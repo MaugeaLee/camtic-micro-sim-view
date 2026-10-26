@@ -15,12 +15,12 @@ export const FOOTPRINT = Object.freeze({
   PRESS: Object.freeze({ w: 10.1, d: 10.82 }),
   SCREW: Object.freeze({ w: 10.1, d: 10.82 }),
   SORT: Object.freeze({ w: 16.56, d: 9.45 }),
-  OUT: Object.freeze({ w: 10.1, d: 10.82 }),
+  OUT: Object.freeze({ w: 5.05, d: 5.41 }),
   PARTS: Object.freeze({ w: 6, d: 2 }),
 });
 
 // 셀이 아닌 AMR 자리(GLB 없음, 절차 형상). OUT = 완료품 적재 구역(협동로봇 + 책장), PARTS = 부속 부품 창고. 자리·크기는 가정이다.
-// OUT 은 PRESS 발자국과 같은 10.1×10.82 m, SORT 서쪽(기본 −30, −2)에 따로 둔다. 예전 SORT 옆 5×3 통과형은 셀과 겹친다.
+// OUT 은 PRESS 발자국의 절반(5.05×5.41 m), SORT 서쪽(기본 −30, −2)에 따로 둔다. 예전 SORT 옆 5×3 통과형·PRESS 전체 크기는 쓰지 않는다.
 // PARTS 는 남쪽 통로의 PRESS 도크 구역과 SCREW 도크 구역 사이(접속 구역이 도크 구역과 합쳐지면 도크에서 다음 미션을 기다리는 차가 길을 막는다).
 // 레이아웃 파일에 없으면 기본 자리를 붙인다(예전 파일도 그대로 읽힌다).
 export const SITES = Object.freeze(['OUT', 'PARTS']);
@@ -141,7 +141,7 @@ export function normalizeLayout(raw) {
   }
   const doc = {
     version: LAYOUT_VERSION, snap, cells, sites,
-    amr: normalizeAmr(raw?.amr, [...IDS, 'OUT', 'PRESS:OUT', 'SCREW:OUT']),
+    amr: normalizeAmr(raw?.amr, [...IDS, 'OUT', 'PRESS:OUT', 'SCREW:OUT', 'SORT:RAW']),
     parts: normalizeAmr(raw?.parts ?? defaultPartsAmr(), PARTS_IDS, defaultPartsAmr()),
   };
   if (raw?.rev != null) doc.rev = raw.rev;
@@ -149,19 +149,81 @@ export function normalizeLayout(raw) {
 }
 
 export function canPlace(doc, id, pose, field = FIELD_SIZE) {
-  if (!IDS.includes(id)) return [`없는 셀 ${id}`];
+  if (!IDS.includes(id) && !SITES.includes(id)) return [`없는 자리 ${id}`];
   if (!insideField(id, pose, field)) return [`${id}가 바닥 밖`];
   const errors = [];
   for (const other of IDS) {
     if (other === id) continue;
     if (overlaps(id, pose, other, doc.cells[other])) errors.push(`${id}·${other} 겹침`);
   }
-  for (const s of SITES) if (doc.sites?.[s] && overlaps(id, pose, s, doc.sites[s])) errors.push(`${id}·${s} 겹침`);
+  for (const s of SITES) {
+    if (s === id) continue;
+    if (doc.sites?.[s] && overlaps(id, pose, s, doc.sites[s])) errors.push(`${id}·${s} 겹침`);
+  }
   return errors;
 }
 
 export function moveCell(doc, id, pose) {
-  const next = normalizeLayout({ ...doc, cells: { ...doc.cells, [id]: pose } });
+  return moveItem(doc, id, pose);
+}
+
+// 완료품 접근 레일(기본 A4–G4). 구역과 따로 두고, 옮기기·끝점·회전만 한다.
+export const SITE_SPUR = Object.freeze({ OUT: Object.freeze(['A4', 'G4']) });
+
+export function spurPts(doc, id) {
+  const ids = SITE_SPUR[id];
+  if (!ids || !doc.amr?.route?.nodes) return null;
+  const pts = ids.map((nid) => doc.amr.route.nodes.find((n) => n.id === nid));
+  return pts.every(Boolean) ? pts : null;
+}
+
+function setSpurPts(doc, id, pts) {
+  const ids = SITE_SPUR[id];
+  const nodes = doc.amr.route.nodes.map((n) => {
+    const i = ids.indexOf(n.id);
+    return i < 0 ? n : { ...n, x: pts[i].x, z: pts[i].z };
+  });
+  return { ...doc, amr: { ...doc.amr, route: { ...doc.amr.route, nodes } } };
+}
+
+export function translateSpur(doc, id, dx, dz) {
+  const pts = spurPts(doc, id);
+  if (!pts || (!dx && !dz)) return doc;
+  return setSpurPts(doc, id, pts.map((p) => ({ x: p.x + dx, z: p.z + dz })));
+}
+
+export function moveSpurEnd(doc, id, end, x, z) {
+  const pts = spurPts(doc, id);
+  if (!pts || end < 0 || end > 1) return doc;
+  const next = pts.map((p) => ({ x: p.x, z: p.z }));
+  next[end] = { x, z };
+  return setSpurPts(doc, id, next);
+}
+
+export function rotateSpur(doc, id, deg) {
+  const pts = spurPts(doc, id);
+  if (!pts || !deg) return doc;
+  const cx = (pts[0].x + pts[1].x) / 2, cz = (pts[0].z + pts[1].z) / 2;
+  const t = (deg * Math.PI) / 180, c = Math.cos(t), s = Math.sin(t);
+  return setSpurPts(doc, id, pts.map((p) => {
+    const dx = p.x - cx, dz = p.z - cz;
+    return { x: cx + dx * c + dz * s, z: cz - dx * s + dz * c };
+  }));
+}
+
+export function itemPose(doc, id) {
+  return doc.cells?.[id] ?? doc.sites?.[id] ?? null;
+}
+
+export function placeItem(doc, id, pose) {
+  if (!itemPose(doc, id)) return doc;
+  return doc.cells?.[id]
+    ? { ...doc, cells: { ...doc.cells, [id]: pose } }
+    : { ...doc, sites: { ...doc.sites, [id]: pose } };
+}
+
+export function moveItem(doc, id, pose) {
+  const next = normalizeLayout(placeItem(doc, id, pose));
   const errors = validateLayout(next);
   return { ok: errors.length === 0, errors, doc: next };
 }

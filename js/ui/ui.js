@@ -92,12 +92,17 @@ export class UI {
     for (const b of this.el.mode?.children ?? []) b.classList.toggle('on', b.dataset.mode === mode);
     const route = mode === 'route' || mode === 'parts';
     this.el.place.hidden = route;
-    this.el.place.innerHTML = route ? '' : cells.map((c) => `<button type="button" data-place="${c.id}">${c.id}</button>`).join('');
+    this.el.place.innerHTML = route ? '' : [
+      ...cells.map((c) => `<button type="button" data-place="${c.id}">${c.id}</button>`),
+      '<button type="button" data-place="OUT">OUT</button>',
+      '<button type="button" data-place="PARTS">PARTS</button>',
+      '<button type="button" data-place="RAIL:OUT">레일</button>',
+    ].join('');
     if (this.el.hint) {
       const keys = '끌기 = 옮기기 · <b>Shift</b>+바닥 = 노드 추가(선택 노드와 연결) · <b>Shift</b>+노드 = 선택 노드와 간선(없음→양방향→단방향) · <b>Ctrl</b>+바닥 = 충전 자리 · <b>Del</b> = 지우기 · <b>X</b> = 셀 출구';
       this.el.hint.innerHTML = mode === 'parts'
         ? `부품 운송 AMR: 큰 주황 = 도킹 자리(창고 PARTS · SORT 투입 SORT:IN · 라인 도크 PRESS/SCREW:Lnn), 초록 = 입구. SORT 레인 칸은 도어트림과 같은 칸이다. ${keys}`
-        : route ? keys : '좌클릭 집기·놓기 · 우클릭 회전 · R 90°';
+        : route ? keys : '좌클릭 집기·놓기 · 노란 레일 몸통 = 옮기기 · 끝점 = 늘리기/줄이기 · R 90°';
     }
   }
 

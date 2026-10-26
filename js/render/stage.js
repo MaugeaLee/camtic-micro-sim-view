@@ -1,4 +1,4 @@
-// 렌더 그래프: 렌더러·씬·카메라·컨트롤. 한 번만 만든다. 보조 뷰포트(CCTV·로봇캠 등)는 두지 않는다.
+// 렌더 그래프: 렌더러·씬·카메라·컨트롤. 한 번만 만든다. 화면 분할 보조 뷰포트는 두지 않는다(내부 CCTV 는 monitor.js 가 렌더 타깃으로 씬 안 모니터에).
 // 조명 톤은 meta-factory main.js LOOK.smart(배경·반구광·주광·보조광·노출)와 blender.js applyRenderEnv(실내 환경광)를 따른다.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';

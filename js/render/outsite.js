@@ -1,9 +1,9 @@
-// 완료품 적재 구역(OUT) 절차 형상: PRESS 크기 셀 프레임 · 울타리 · 뒷벽 책장 · 레일 위 협동로봇.
+// 완료품 적재 구역(OUT) 절차 형상: PRESS 절반 셀 프레임 · 울타리 · 뒷벽 책장 · 레일 위 협동로봇.
 // 형상·치수는 가정이다(GLB 없음). 팔은 시뮬 joints(outwork.view) 그대로. 그리기만 한다.
 import * as THREE from 'three';
 
-// layout FOOTPRINT.OUT · PRESS 와 같은 가정 발자국. sim 을 import 하지 않는다.
-const PAD = Object.freeze({ w: 10.1, d: 10.82 });
+// layout FOOTPRINT.OUT · PRESS 발자국의 절반. sim 을 import 하지 않는다.
+const PAD = Object.freeze({ w: 5.05, d: 5.41 });
 const Z_FWD = new THREE.Vector3(0, 0, 1);
 const DIR = new THREE.Vector3();
 const AIM = new THREE.Vector3();
@@ -15,6 +15,7 @@ export class OutSiteView {
   constructor(scene) {
     this.root = new THREE.Group();
     this.root.name = 'out-site';
+    this.root.userData.siteId = 'OUT';
     this.root.visible = false;
     scene.add(this.root);
     this.key = null;
@@ -26,14 +27,15 @@ export class OutSiteView {
     if (key === this.key) return;
     this.key = key;
     this.root.clear();
-    const steel = M('#9aa3ad'), dark = M('#2c3138'), wood = M('#6b5340'), yellow = M('#d9a73a');
-    const pad = M('#3a4a3f', { roughness: 0.9, metalness: 0 }), accent = M('#c4a574'), white = M('#d8dde3', { roughness: 0.45, metalness: 0.15 });
+    const steel = M('#9aa3ad'), dark = M('#6d757e'), wood = M('#6b5340'), yellow = M('#d9a73a');
+    // 필드 바닥(field.js floorTint #d8e2ec · 콘크리트 회색)과 같은 족. 구역만 한 톤 낮춰 읽히게.
+    const pad = M('#d2dae2', { roughness: 0.88, metalness: 0.04 }), accent = M('#c4a574'), white = M('#d8dde3', { roughness: 0.45, metalness: 0.15 });
     const { w, d } = PAD;
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(w, d), pad);
     floor.rotation.x = -Math.PI / 2;
     floor.position.y = 0.004;
     floor.receiveShadow = true;
-    const edge = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(w, 0.001, d)), new THREE.LineBasicMaterial({ color: '#e8c547' }));
+    const edge = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(w, 0.001, d)), new THREE.LineBasicMaterial({ color: '#9aa3ad' }));
     edge.position.y = 0.006;
     this.root.add(floor, edge);
     this.buildFrame(w, d, steel, white, yellow);
@@ -92,15 +94,15 @@ export class OutSiteView {
   }
 
   buildDock(dark, yellow) {
-    const plate = box(1.7, 0.02, 2.2, dark);
-    plate.position.set(0, 0.012, 0.15);
-    const mark = box(0.55, 0.015, 0.9, yellow);
-    mark.position.set(0, 0.022, 0.15);
+    const plate = box(1.4, 0.02, 1.4, dark);
+    plate.position.set(0, 0.012, 0.3);
+    const mark = box(0.45, 0.015, 0.7, yellow);
+    mark.position.set(0, 0.022, 0.3);
     this.root.add(plate, mark);
   }
 
   buildShelf(S, slots, kit, wood, dark, steel, accent) {
-    const W = PAD.w - 1.35, D = S.depth, z = S.z, decks = S.decks;
+    const W = PAD.w - 0.55, D = S.depth, z = S.z, decks = S.decks;
     const top = decks.at(-1) + kit[0] + 0.12;
     const back = box(W + 0.16, top, 0.06, wood);
     back.position.set(0, top / 2, z - D / 2 - 0.03);

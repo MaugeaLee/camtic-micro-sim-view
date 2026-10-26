@@ -1,4 +1,4 @@
-// SORT 적재: 양팔 로봇이 랙 맨 위 키트를 양끝에서 같이 잡아 AMR 적재면에 내린다. DOM·three 없음.
+// SORT 양팔: 입고(AMR 적재면 → 랙)와 적재(랙 → AMR 적재면). 두 팔이 키트 양끝을 같이 잡는다. DOM·three 없음.
 // 두 팔은 한 대차(슬라이드)에 앉아 있고 몸통이 돈다(가정: 몸통 회전축 = 두 팔 베이스 가운데 수직선). 대차 위치 s·몸통 각 w 는 두 팔이 같이 쓴다.
 // 키트는 두 그리퍼 가운데에 붙는다. 팔마다 관절 공간으로 보간하면 두 그리퍼 사이가 벌어지므로, 매 스텝 키트 중심(몸통 좌표)을 보간하고
 // 두 팔이 각자 그 양끝 점을 IK 로 따라간다(직전 자세에서 시작 — 결정론). rig 가 없으면 TCP = 그 양끝 점.
@@ -16,6 +16,7 @@ const turnAt = (p, o, w) => {
   return [o[0] + dx * c + dz * s, p[1], o[2] - dx * s + dz * c];
 };
 const angleTo = (u, v) => Math.atan2(u[2] * v[0] - u[0] * v[2], u[0] * v[0] + u[2] * v[2]);
+const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const KEYS = [['R', 0], ['A0', 0.16], ['P0', 0.24], ['P0', PICK.grip], ['A0', PICK.lift], ['A1', 0.62], ['P1', 0.7], ['P1', PICK.drop], ['A1', 0.88], ['R', 1]];
 // AMR 이 떠나도 되는 시각(놓고 든 뒤)
 export const LOAD = Object.freeze({ release: 0.88 });
@@ -33,6 +34,7 @@ export class SortWork {
     this.ticket = null;
     this.op = null;
     this.done = 0;
+    this.inDone = 0;            // AMR → 랙 하역 횟수
     this.miss = 0;              // IK 가 못 따라간 최대 거리(m) — rig 있을 때만
     this.dock = null;
     this.rig = null;
@@ -106,8 +108,24 @@ export class SortWork {
 
   // ── AMR 적재 핸드셰이크: AMR 이 도크에 서면 Plant 가 load → 팔이 랙 키트를 집어 AMR 에 놓고 든 뒤 released ──
   // to: 키트를 놓을 AMR 소유자, at: AMR 위치(셀 로컬 {x,z}), back(kit): 취소된 적재의 키트를 랙으로 되돌림(Plant)
+  // 양팔은 하나: 입고(뒤)와 적재(앞)를 동시에 못 한다. 바쁜 동안 load·unload 는 false → ACS 가 다시 묻는다.
+  // released 뒤(팔 복귀 0.88–1)에는 다음 티켓을 받는다 — run 이 옛 티켓만 지운다.
+  busy() { return !!(this.ticket && !this.ticket.released && !this.ticket.cancel); }
+
   load(kit, to, at, back) {
-    this.ticket = { kit, to, at: [at.x, at.z], back, started: false, gripped: false, released: false, cancel: false };
+    if (this.busy()) return false;
+    this.ticket = { kind: 'load', kit, to, at: [at.x, at.z], back, started: false, gripped: false, released: false, cancel: false };
+    return this.ticket;
+  }
+
+  // ── AMR 하역(입고): 적재면 키트를 집어 빈 랙 칸에 놓음. 든 뒤(PICK.lift) released → AMR 출발. ──
+  // from: 지금 소유자(AMR), at: AMR 위치, onOk(kit): 랙에 놓은 뒤(Plant 가 kits 에 넣음)
+  unload(kit, from, at, onOk, heading) {
+    if (this.busy()) return false;
+    const i = this.rack.items.indexOf(null);
+    if (i < 0) return { released: true };
+    this.rack.items[i] = kit;
+    this.ticket = { kind: 'unload', kit, from, at: [at.x, at.z], heading, slot: i, onOk, started: false, gripped: false, released: false, cancel: false };
     return this.ticket;
   }
 
@@ -116,13 +134,16 @@ export class SortWork {
     this.feed?.step(h);
     const T = this.ticket;
     if (T && !T.started) {
-      if (T.cancel) this.ticket = null;
-      else if (!this.op) this.start(T);
+      if (T.cancel) {
+        if (T.kind === 'unload' && T.slot != null && this.rack.items[T.slot] === T.kit) this.rack.items[T.slot] = null;
+        this.ticket = null;
+      } else if (!this.op) this.start(T);
     }
     this.run(h);
   }
 
   start(T) {
+    if (T.kind === 'unload') { this.startIn(T); return; }
     const i = this.rack.items.indexOf(T.kit);
     if (i < 0) { T.released = true; this.ticket = null; return; }
     T.started = true;
@@ -150,6 +171,41 @@ export class SortWork {
       ],
     };
     for (const r of this.robots) r.label = `${this.id} 적재`;
+  }
+
+  // 입고: 랙 뒤 AMR(P0, 몸통은 AMR 쪽) → 랙(P1, 몸통 앞). 든 뒤 AMR 이 떠나고 팔이 랙에 놓는다.
+  startIn(T) {
+    const i = T.slot, kit = T.kit;
+    if (i == null || this.rack.items[i] !== kit) { T.released = true; this.ticket = null; return; }
+    T.started = true;
+    const g = this.kitH * (1 - this.grip), c = this.L.clear;
+    const P1 = this.rackPt(i); P1[1] += g;
+    const P0 = [T.at[0], this.L.deck + g, T.at[1]];
+    const s0 = this.slideFor(P0), s1 = this.slideFor(P1);
+    const p0 = [P0[0] - this.geo.axis[0] * s0, 0, P0[2] - this.geo.axis[2] * s0];
+    const w0 = angleTo(this.front, [p0[0] - this.geo.o[0], 0, p0[2] - this.geo.o[2]]);
+    const at = (p, s, w) => ({ K: this.inv(p, s, w), s, w });
+    const pts = { R: { K: this.readyK, s: 0, w: 0 }, A0: at([P0[0], P0[1] + c, P0[2]], s0, w0), P0: at(P0, s0, w0), A1: at([P1[0], P1[1] + c, P1[2]], s1, 0), P1: at(P1, s1, 0) };
+    const pairH = { k: 'pair', cell: this.id };
+    const yaw0 = Number.isFinite(T.heading) ? T.heading - Math.PI / 2 : this.rackYaw() + w0;
+    this.op = {
+      el: 0, ei: 0, time: this.L.time, w1: w0, T, yaw0, yaw1: this.rackYaw(),
+      keys: KEYS.map(([k, t]) => ({ t, ...pts[k] })),
+      events: [
+        { t: PICK.grip, fn: () => { this.parts.hold(kit, pairH, kit.holder); T.gripped = true; } },
+        { t: PICK.drop, fn: () => {
+          if (T.cancel) {
+            if (this.rack.items[i] === kit) this.rack.items[i] = null;
+            this.parts.remove(kit);
+          } else {
+            this.parts.hold(kit, { k: 'rack', cell: this.id, i }, pairH);
+            T.onOk?.(kit);
+          }
+        } },
+        { t: LOAD.release, fn: () => { T.released = true; if (!T.cancel) this.inDone++; } },
+      ],
+    };
+    for (const r of this.robots) r.label = `${this.id} 하역`;
   }
 
   run(h) {
@@ -180,7 +236,7 @@ export class SortWork {
     this.robots.forEach((r, i) => {
       if (!r.ch) { r.tcp = this.fwd(ends[i], s, w); return; }
       const sol = ik(r.ch, ends[i], { seed: (r.pose ?? r.ready).q });
-      if (sol.err > this.miss) this.miss = sol.err;
+      if (op.T.kind !== 'unload' && sol.err > this.miss) this.miss = sol.err;
       r.pose = { q: sol.q, s, w };
       r.tcp = this.fwd(fk(r.ch, sol.q).p, s, w);
     });
@@ -191,7 +247,18 @@ export class SortWork {
     if (this.feed && (e.holder.k === 'xfer' || e.holder.k === 'belt')) return this.feed.local(e);
     if (e.holder.k !== 'pair' || !this.op?.K) return null;
     const p = this.fwd(this.op.K, this.car.s, this.car.w);
-    return [p[0], p[1] - e.h * (1 - this.grip), p[2], this.rackYaw() + this.car.w];
+    return [p[0], p[1] - e.h * (1 - this.grip), p[2], this.kitYaw()];
+  }
+
+  // 입고: AMR 적재면 yaw → 랙 yaw 로 보간(뒤쪽 도크 heading 이 북쪽 적재와 다름). 적재는 랙 yaw + 몸통 각.
+  kitYaw() {
+    const op = this.op;
+    if (op?.yaw0 != null && op.yaw1 != null) {
+      const f = op.el >= op.time - 1e-9 ? 1 : op.el / op.time;
+      const t = f <= PICK.grip ? 0 : f >= PICK.drop ? 1 : (f - PICK.grip) / (PICK.drop - PICK.grip);
+      return op.yaw0 + wrap(op.yaw1 - op.yaw0) * smooth(t);
+    }
+    return this.rackYaw() + this.car.w;
   }
 
   // 랙에 놓인 키트의 yaw: 몸통이 w1 만큼 돌아 AMR(셀 기준 yaw 0)에 놓이도록 −w1. 도크 위치가 바뀌어도 같은 규칙.

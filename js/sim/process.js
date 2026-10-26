@@ -30,6 +30,7 @@ export function validateProcess(doc, { cycle = null } = {}) {
   if (S) {
     if (!Array.isArray(S.rack) || !S.rack.length || !S.rack.every(pt)) errors.push('SORT rack은 {x,y,z} 배열');
     if (!(S.pickup > 0)) errors.push('SORT pickup은 양수');
+    if (S.inbound != null && !(S.inbound.load > 0)) errors.push('SORT inbound.load는 양수');
     const L = S.load;
     if (L) {
       if (!Array.isArray(L.robots) || L.robots.length !== 2 || !L.robots.every((r) => typeof r === 'string')) errors.push('SORT load.robots는 팔 이름 2개');

@@ -43,8 +43,8 @@ check('교차 구역 · SORT 출구와 PRESS 입구는 한 구역 · 동쪽 반�
   && zs.some((z) => z.cells.includes('PRESS:OUT') || z.cells.includes('SCREW:OUT')), zs.map((z) => `${z.cells.join('+')}@${z.x.toFixed(1)},${z.z.toFixed(1)} r${z.r.toFixed(2)}`).join(' '));
 check('충전 자리는 교차 구역 밖', L.amr.homes.every((h) => zs.every((z) => Math.hypot(h.x - z.x, h.z - z.z) > z.r + 0.62)));
 const map = mapOf(routeGeo(L));
-check('그리기용 지도: 간선 9 · 충전 자리 10 · 셀 3 + 완료품 적재 구역 + 동쪽 반출 2 · 충전 자리는 루트를 등진다', map.edges.length === 9 && map.homes.length === 10 && map.cells.length === 6 && !map.cells.find((c) => c.id === 'OUT').bad
-  && map.cells.some((c) => c.id === 'PRESS:OUT') && map.cells.some((c) => c.id === 'SCREW:OUT')
+check('그리기용 지도: 간선 12 · 충전 자리 10 · 셀 3 + 완료품 적재 구역 + 동쪽 반출 2 + SORT 뒤쪽 입고 · 충전 자리는 루트를 등진다', map.edges.length === 12 && map.homes.length === 10 && map.cells.length === 7 && !map.cells.find((c) => c.id === 'OUT').bad
+  && map.cells.some((c) => c.id === 'PRESS:OUT') && map.cells.some((c) => c.id === 'SCREW:OUT') && map.cells.some((c) => c.id === 'SORT:RAW')
   && map.homes.every((h) => near(h.heading, Math.PI, 1e-6) || near(h.heading, -Math.PI, 1e-6)));
 
 // Admin 편집 함수

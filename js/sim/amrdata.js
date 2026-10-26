@@ -10,17 +10,21 @@ const R = (v) => Math.round(v * 100) / 100;
 const BAY = Object.freeze({ entry: { x: -4.6, z: 0 }, stops: [{ x: -1.83, z: 0 }], exit: null });
 const EAST_BAY = Object.freeze({ entry: { x: 4.6, z: 0 }, stops: [{ x: 1.83, z: 0 }], exit: null });
 export const OUT_DOCKS = Object.freeze(['PRESS:OUT', 'SCREW:OUT']);
+// 도어트림 원재료 입고: SORT 랙 남쪽(양팔 앞의 반대편). 북쪽 AMR_dual_pickup 은 분류 키트 적재만.
+export const RAW_IN = 'SORT:RAW';
 export const DEFAULT_AMR = Object.freeze({
   route: {
     nodes: [
       { id: 'A0', x: -22.6, z: 12.2 }, { id: 'A1', x: -2.9, z: 12.2 }, { id: 'A2', x: 11, z: 12.2 }, { id: 'A3', x: 25.8, z: 12.2 },
       { id: 'A4', x: -30, z: 12.2 },
       { id: 'G0', x: -22.6, z: -0.6 }, { id: 'G1', x: -2.9, z: -2 }, { id: 'G2', x: 11, z: -2 }, { id: 'G3', x: 25.8, z: -2 },
-      { id: 'G4', x: -30, z: 5 },
+      { id: 'G4', x: -30, z: 3 },
+      { id: 'R2', x: -4.05, z: -2.8 }, { id: 'R1', x: -4.05, z: -8.4 }, { id: 'R0', x: -6.64, z: -8.4 },
     ],
     edges: [
       { a: 'A0', b: 'A1' }, { a: 'A1', b: 'A2' }, { a: 'A2', b: 'A3' }, { a: 'A0', b: 'A4' },
       { a: 'A0', b: 'G0', oneway: true }, { a: 'A1', b: 'G1' }, { a: 'A2', b: 'G2' }, { a: 'A3', b: 'G3' }, { a: 'A4', b: 'G4' },
+      { a: 'G1', b: 'R2', center: true }, { a: 'R2', b: 'R1', center: true }, { a: 'R1', b: 'R0', center: true },
     ],
   },
   homes: [
@@ -37,11 +41,13 @@ export const DEFAULT_AMR = Object.freeze({
       stops: [{ x: -5.94, z: 1.65 }, { x: -4.34, z: 1.65 }, { x: -1.84, z: 1.65 }, { x: -0.14, z: 1.65 }, { x: 1.56, z: 1.65 }, { x: 3.26, z: 1.65 }, { x: 6.36, z: 1.65 }],
       exit: { x: 8.0, z: 1.65 },
     },
-    // 완료품 적재 구역(가정, 절차 형상, PRESS 발자국). 북쪽 통로 A4–G4 지선에서 들어와 협동로봇 앞 도크에 서고 후진 출차.
+    // 완료품 적재 구역(가정, 절차 형상, PRESS 절반 발자국). 북쪽 통로 A4–G4 지선에서 들어와 협동로봇 앞 도크에 서고 후진 출차.
     // 지선이 출차 길이라 대기는 북쪽 통로 쪽(acs.js SPUR_HOLD).
-    OUT: { entry: { x: 0, z: 4.5 }, stops: [{ x: 0, z: 0 }], exit: null },
+    OUT: { entry: { x: 0, z: 2.2 }, stops: [{ x: 0, z: 0.3 }], exit: null },
     'PRESS:OUT': EAST_BAY,
     'SCREW:OUT': EAST_BAY,
+    // 도어트림 원재료(가정): 랙 남쪽 막다른 칸. G1에서 서쪽으로 빠진 뒤(R2) 남하(R1)·서진(R0). 지선은 중심선(차로 오프셋이면 부품 남행 x −2.9 와 겹침).
+    'SORT:RAW': { entry: { x: 6.36, z: -6.4 }, stops: [{ x: 6.36, z: -4.4 }], exit: null },
   },
 });
 
@@ -93,7 +99,11 @@ export function defaultPartsAmr() { return clone(DEFAULT_PARTS_AMR); }
 export function normalizeAmr(raw, cellIds, d = DEFAULT_AMR) {
   const src = raw && typeof raw === 'object' ? raw : {};
   const nodes = (src.route?.nodes ?? d.route.nodes).map((n) => ({ id: String(n.id), ...pt(n) }));
-  const edges = (src.route?.edges ?? d.route.edges).map((e) => ({ a: String(e.a), b: String(e.b), ...(e.oneway ? { oneway: true } : {}) }));
+  const edges = (src.route?.edges ?? d.route.edges).map((e) => ({
+    a: String(e.a), b: String(e.b),
+    ...(e.oneway ? { oneway: true } : {}),
+    ...(e.center ? { center: true } : {}),
+  }));
   const homes = (src.homes ?? d.homes).map(pt);
   const cells = {};
   for (const id of cellIds) {

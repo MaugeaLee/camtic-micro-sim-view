@@ -52,7 +52,7 @@ export class Amr {
   }
 
   update(h, fleet) {
-    this.moving = false; this.charging = false; this.docked = false;
+    this.moving = false; this.charging = false;
     if (this.passT > 0) this.passT -= h;
     let guard = 0;
     while (this.steps.length && guard++ < 12) {
@@ -71,6 +71,8 @@ export class Amr {
     }
     if (!this.steps.length) this.v = 0;
     fleet.zonesFree?.(this);
+    this.docked = isDocked(this);
+    if (this.docked) { this.blockedOn = null; this.blockT = 0; }
     this.drain(h);
   }
 
@@ -203,6 +205,8 @@ export class Amr {
 
     this.blockedOn = o; this.blockT += h;
     if (this.inBranch) return null;
+    // 다른 플릿 차로로 우회하면 차체가 붙는다(입고 지선 × 부품 남행). 서서 기다린다.
+    if (fleet.peers?.some((p) => p.amrs.includes(o))) return null;
     const cross = dir.x * (o.z - this.z) - dir.z * (o.x - this.x);
     const sgn = cross > 0 ? 1 : -1;
     const sd = { x: -dir.z * sgn, z: dir.x * sgn };
@@ -225,6 +229,15 @@ export class Amr {
     if (!atDest && this.blockT > 12 && this.prio < o.prio) return detour([{ x: this.x + sd.x * off, z: this.z + sd.z * off, hold: o }]);
     return null;
   }
+}
+
+// 도크·충전 자리 정박. 주행(go) 중이면 아니고, 핸드셰이크·셀 칸 대기·홈 대기는 정박.
+export function isDocked(a) {
+  if (!a || a.off) return false;
+  if (a.ticket) return true;
+  if (a.steps[0]?.go) return false;
+  if (a.at?.kind === 'home') return true;
+  return !!(a.inBranch && a.at?.kind === 'cell' && a.at.id === a.inBranch);
 }
 
 const GATE = 4;

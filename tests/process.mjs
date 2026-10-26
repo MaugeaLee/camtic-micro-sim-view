@@ -47,6 +47,8 @@ check('SCREW 마지막 스테이션 단계 합 = takt = 시나리오 cycle(42 s)
   check('SCREW 도 같은 점검(단계 합 ≠ takt 이면 오류)', validateProcess(b5, { cycle }).some((e) => e.startsWith('SCREW') && e.includes('takt')));
   const b6 = clone(doc); b6.cells.SORT.load.robots = ['Dual_arm_L'];
   check('SORT 적재 팔이 2개가 아니면 오류', validateProcess(b6).some((e) => e.includes('load.robots')));
+  const bIn = clone(doc); bIn.cells.SORT.inbound.load = 0;
+  check('SORT inbound.load 가 양수 아니면 오류', validateProcess(bIn).some((e) => e.includes('inbound.load')));
   const b7 = clone(doc); b7.cells.PRESS.flow[1].steps.splice(1, 0, b7.cells.PRESS.flow[1].steps.pop());
   check('반출(unload)이 마지막 단계가 아니면 오류', validateProcess(b7).some((e) => e.includes('unload')));
   const b8 = clone(doc); delete b8.cells.OUT;
@@ -203,7 +205,7 @@ for (const withRig of [false, true]) {
   check(`[${tag}] 소유자 하나: 옮김 위반 0 · 자리 중복 0 (900 s 매 스텝)`, s.plant.parts.violationCount === 0 && audit === 0, `viol ${s.plant.parts.violationCount} audit ${audit}`);
   check(`[${tag}] 순간이동 없음: 엔티티 스텝당 이동 ≤ 0.25 m`, maxD <= 0.25 && held > 100, `max ${maxD.toFixed(3)} (${worst})`);
   check(`[${tag}] PRESS 완료 > 0 · SCREW 셀 공정 완료 > 0 (시작 재고 0 — 첫 키트·토트는 AMR 이 가져옴)`, cw.done >= 3 && cs.done >= 3 && s.plant.units.SCREW.done === cs.done, `PRESS ${cw.done} SCREW ${cs.done}`);
-  check(`[${tag}] SORT 양팔 적재 > 10 · 키트가 두 팔에 들린 스텝 있음`, sw.done > 10 && paired > 100, `적재 ${sw.done} 들린 스텝 ${paired}`);
+  check(`[${tag}] SORT 양팔 입고·적재 > 5 · 키트가 두 팔에 들린 스텝 있음`, sw.inDone > 5 && sw.done > 5 && paired > 100, `입고 ${sw.inDone} 적재 ${sw.done} 들린 스텝 ${paired}`);
   check(`[${tag}] 키트 yaw 스텝당 변화 ≤ 0.2 rad(돌아서 놓을 때 튀지 않음)`, maxYaw <= 0.2, maxYaw.toFixed(3));
   if (withRig) {
     check('[rig] 로봇 TCP 끼리 0.2 m 넘게 떨어짐(PRESS·SCREW)', minRR > 0.2, minRR.toFixed(3));
@@ -259,15 +261,49 @@ for (const withRig of [false, true]) {
   check('AMR 은 집어 든(released) 뒤 출발', !!left && left.gripped && left.released, JSON.stringify(left));
 }
 
+// ── SORT 입고: 키트는 랙에 생기지 않고, AMR 이 랙 뒤(SORT:RAW)에 하역해야 협동로봇이 랙에 올린다 ──
+{
+  const s = run(0);
+  check('시작 때 SORT 랙 비어 있음', s.plant.rack.items.every((e) => !e));
+  const sw = s.plant.work.SORT;
+  const raw = s.acs.cells['SORT:RAW']?.stops.at(-1);
+  const dual = s.acs.cells.SORT?.stops.at(-1);
+  let seen = null, slid = 0;
+  for (let i = 0; i < 4000 && !seen; i++) {
+    s.step(0.1);
+    if (s.plant.parts.list().some((e) => e.type === 'kit' && e.holder.k === 'rack') && !sw.inDone) {
+      seen = 'spawn'; break;
+    }
+    if (sw.op) slid = Math.max(slid, Math.abs(sw.car.s));
+    const a = s.amrs.find((x) => x.ticket && x.ticket === sw.ticket && sw.ticket.kind === 'unload');
+    if (a && sw.ticket.started) seen = { a, T: sw.ticket, task: a.task };
+  }
+  check('입고 하역 중 AMR 라벨 「SORT 하역」 · 랙에 먼저 생기지 않음', !!seen && seen !== 'spawn' && seen.task.startsWith('SORT 하역'), typeof seen === 'string' ? seen : seen?.task);
+  check('입고 AMR 은 랙 뒤(SORT:RAW)에 선다 · 북쪽 듀얼 도크가 아님', !!seen && seen !== 'spawn' && raw && dual
+    && Math.hypot(seen.a.x - raw.x, seen.a.z - raw.z) < 0.4
+    && Math.hypot(seen.a.x - dual.x, seen.a.z - dual.z) > 2
+    && seen.a.z < dual.z, seen === 'spawn' ? seen : seen && `xy ${seen.a.x.toFixed(2)} ${seen.a.z.toFixed(2)}`);
+  let left = null;
+  for (let i = 0; i < 300 && seen && seen !== 'spawn'; i++) {
+    const x = seen.a.x, z = seen.a.z;
+    s.step(0.1);
+    if (sw.op) slid = Math.max(slid, Math.abs(sw.car.s));
+    if (Math.hypot(seen.a.x - x, seen.a.z - z) > 1e-6) { left = { released: seen.T.released, gripped: seen.T.gripped, onRack: s.plant.rack.items.includes(seen.T.kit) }; break; }
+  }
+  check('입고 AMR 은 집어 든(released) 뒤 출발', !!left && left.gripped && left.released, JSON.stringify(left));
+  for (let i = 0; i < 200 && sw.op; i++) s.step(0.1);
+  check('협동로봇이 키트를 랙에 올림 · 입고 횟수 > 0', sw.inDone > 0 && s.plant.rack.items.some(Boolean) && s.plant.kits.length > 0, `inDone ${sw.inDone} kits ${s.plant.kits.length}`);
+}
+
 // ── SORT: AMR 은 양팔이 키트를 적재면에 놓은 뒤에 떠난다 · 적재 중 몸통이 돌고 대차가 움직인다 ──
 {
   const s = run(0);
   const sw = s.plant.work.SORT;
   let seen = null, turned = 0, slid = 0;
-  for (let i = 0; i < 3000 && !seen; i++) {
+  for (let i = 0; i < 8000 && !seen; i++) {
     s.step(0.1);
-    if (sw.op) { turned = Math.max(turned, Math.abs(sw.car.w)); slid = Math.max(slid, Math.abs(sw.car.s)); }
-    const a = s.amrs.find((x) => x.ticket && x.ticket === sw.ticket);
+    if (sw.op && sw.ticket?.kind === 'load') { turned = Math.max(turned, Math.abs(sw.car.w)); slid = Math.max(slid, Math.abs(sw.car.s)); }
+    const a = s.amrs.find((x) => x.ticket && x.ticket === sw.ticket && sw.ticket.kind === 'load');
     if (a && sw.ticket.started) seen = { a, T: sw.ticket, task: a.task };
   }
   check('적재 중 AMR 라벨 「SORT 적재」', !!seen && seen.task.startsWith('SORT 적재'), seen?.task);
@@ -315,7 +351,7 @@ for (const withRig of [false, true]) {
   check('2 h: 10분 창마다 PRESS·SCREW 완료 > 0 · 완료품 적재 > 0(교착 없음)', (win[0] > 0 || win[1] > 0) && win.slice(1).every((n) => n > 0) && winS.every((n) => n > 0) && winO.every((n) => n > 0), `PRESS ${win.join(',')} SCREW ${winS.join(',')} OUT ${winO.join(',')}`);
   check('2 h: 소유 위반 0 · 잠금 위반 0 · 구역 진입 0(PRESS·SCREW)', s.plant.parts.violationCount === 0 && cw.lockFaults === 0 && cw.intrude === 0 && cs.lockFaults === 0 && cs.intrude === 0,
     `viol ${s.plant.parts.violationCount} PRESS ${cw.lockFaults}/${cw.intrude} SCREW ${cs.lockFaults}/${cs.intrude} ${cs.lastIntrude ?? ''}`);
-  check('2 h: 엔티티 수 유한(적재대는 묶음 출하로 비운다)', maxParts < 110 && s.plant.work.OUT.batches > 5, `최대 ${maxParts} · 출하 ${s.plant.work.OUT.batches}회`);
+  check('2 h: 엔티티 수 유한(적재대는 묶음 출하로 비운다)', maxParts < 110 && s.plant.work.OUT.batches >= 5, `최대 ${maxParts} · 출하 ${s.plant.work.OUT.batches}회`);
   const made = cw.done + cs.done, out = s.plant.outbound;
   check('2 h: 완료품은 사라지지 않고 적재 구역으로 간다(완료 − 적재 ≤ 운반 중 2)', made - out >= 0 && made - out <= 2, `완료 ${made} · 적재 ${out}`);
   const first = Math.max(...filled.values());
@@ -337,7 +373,8 @@ for (const withRig of [false, true]) {
   check('SORT 잠금은 두 플릿이 같은 객체 · 서로 peers', P.acs.locks.SORT === P.supply.acs.locks.SORT && P.acs.peers.includes(P.supply.acs) && P.supply.acs.peers.includes(P.acs));
   check('부품 그래프: PRESS·SCREW·OUT 셀 도크 없음 · SORT(레인) · SORT:IN(투입) 있음 · 도어트림 그래프에 창고·라인·투입 도크 없음',
     !['PRESS', 'SCREW', 'OUT'].some((id) => P.supply.acs.cells[id]) && !!P.supply.acs.cells.SORT && !!P.supply.acs.cells['SORT:IN']
-    && !Object.keys(P.acs.cells).some((id) => id === 'PARTS' || id.startsWith('SORT:') || id.includes(':L')));
+    && !Object.keys(P.acs.cells).some((id) => id === 'PARTS' || id === 'SORT:IN' || id.includes(':L'))
+    && !!P.acs.cells['SORT:RAW']);
   const F = P.supply.feed;
   check('레인 = 라인 쪽: A PRESS 북 · B PRESS 남 · C SCREW 북 · D SCREW 남 · 미배정 라인 없음',
     F.laneOf('PRESS:L03').id === 'A' && F.laneOf('PRESS:L01').id === 'B' && F.laneOf('SCREW:L04').id === 'C' && F.laneOf('SCREW:L02').id === 'D' && !P.supply.unserved?.length);
@@ -436,7 +473,7 @@ for (const withRig of [false, true]) {
   const cw = s.plant.work.PRESS, R8 = cw.robots.R8;
   const east = s.acs.cells['PRESS:OUT']?.stops[0];
   let seen = null;
-  for (let i = 0; i < 6000 && !seen; i++) {
+  for (let i = 0; i < 18000 && !seen; i++) {
     s.step(0.1);
     const T = cw.out;
     const a = T && s.amrs.find((x) => x.ticket === T);

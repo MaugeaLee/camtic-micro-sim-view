@@ -1,5 +1,5 @@
 // 시나리오: 시뮬 시간축으로 셀 상태(IDLE/BUSY/DOWN)를 구동하고, 운반은 ACS(acs.js)에 미션으로 넘긴다. DOM·three 없음.
-// 흐름 가정: SORT가 서브부품을 분류해 키트를 만들고, 공급 AMR이 SORT 도크에서 싣고 SCREW·PRESS 셀 안 도크로 나른다.
+// 흐름 가정: 도어트림 AMR이 원재료를 SORT 랙 뒤(SORT:RAW)에 하역하면 협동로봇이 랙에 올리고, 분류된 키트를 북쪽 양팔 도크에서 AMR에 실어 SCREW·PRESS 로 나른다.
 // 사이클·재고·고장 시각은 모두 가정값이다. 실측·확정 공정이 아니다. 기본 시나리오에는 고장이 없다.
 // 공정 정의(process.default.json)를 주면 키트·부품이 엔티티(소유자 하나)가 된다: SORT 랙 → (양팔 적재 또는 옮김) → AMR 적재면 → 셀 로봇 하역.
 // 스테이션 흐름이 있는 셀(PRESS·SCREW)은 cellwork.js 가 돌리고, 셀 상태·진행률·재고는 거기서 읽는다. SORT 적재는 sortwork.js.
@@ -10,7 +10,7 @@
 // 플릿 − 반출 셀 수 이하로 둬서 반출 AMR 이 늘 남는다.
 import { Acs, shareCross } from './acs.js';
 import { Hound } from './hound.js';
-import { AMR_HOMES_MAX } from './amrdata.js';
+import { AMR_HOMES_MAX, RAW_IN } from './amrdata.js';
 import { CellWork } from './cellwork.js';
 import { placeOf, toLocal, toWorld } from './layout.js';
 import { OutWork } from './outwork.js';
@@ -96,7 +96,8 @@ export class Plant {
     this.slots = {};
     this.rack = null;
     this.supply = null;         // 부속 부품 AMR 플릿(공정 정의에 supply 가 있을 때)
-    this.hound = new Hound();   // 견마: 겹침·끼임 이상 감지·전파·접촉 리커버리(가정)
+    this.inM = null;            // 도어트림 입고 미션(한 건)
+    this.hound = new Hound({ layout });   // 견마: 통로 관제 보행 · 이상 감지·전파·접촉 리커버리(가정)
     this.proc = process ? normalizeProcess(process, { cycle: def.cycle }) : null;
     if (this.proc) this.setupProcess();
   }
@@ -160,9 +161,11 @@ export class Plant {
     this.layout = layout;
     this.acs.setLayout(layout);
     this.supply?.setLayout(layout);
+    this.hound.bind(layout);
     this.hound.reset();
     this.linkCross();
     this.placeDocks();
+    this.inM = null;
   }
 
   attachRig(id, rig) { return this.work[id]?.attachRig(rig) ?? null; }
@@ -182,7 +185,7 @@ export class Plant {
     this.dispatch();
     this.acs.step(h);
     this.supply?.step(h);
-    this.hound.step(h, this.allAmrs, host);
+    this.hound.step(h, this.allAmrs, host, this.layout);
     for (const u of Object.values(this.units)) host.setCellState(u.id, u.state);
   }
 
@@ -292,9 +295,21 @@ export class Plant {
 
   runSource(h) {
     const u = this.units[this.def.source];
-    this.work[u.id]?.step(h, !!u.down);
+    const sw = this.work[u.id];
+    sw?.step(h, !!u.down);
     if (u.down) { u.state = 'DOWN'; return; }
     const cap = this.rack ? Math.min(this.def.buffer, this.rack.items.length) : this.def.buffer;
+    // 공정 정의가 있으면 키트는 랙에 생기지 않는다 — 도어트림 AMR 이 랙 뒤(SORT:RAW)에 하역해야 협동로봇이 랙에 올린다.
+    if (this.proc && this.rack && sw) {
+      if (this.inM && !this.acs.queue.includes(this.inM) && !this.acs.amrs.some((a) => a.mission === this.inM)) this.inM = null;
+      if (this.rack.items.includes(null) && !this.inM && this.acs.ok(u.id) && this.acs.ok(RAW_IN)) this.inM = this.acs.request(this.inMission());
+      const raw = this.inM || this.acs.amrs.some((a) => a.mission?.raw);
+      const busy = !!sw.op || raw;
+      if (this.kits.length >= cap && !busy) { u.state = 'IDLE'; u.progress = 0; return; }
+      u.state = busy ? 'BUSY' : 'IDLE';
+      u.progress = sw.op ? sw.op.el / sw.op.time : 0;
+      return;
+    }
     if (this.kits.length >= cap || (this.rack && !this.rack.items.includes(null))) { u.state = 'IDLE'; return; }
     u.state = 'BUSY';
     u.progress += h / this.def.cycle[u.id];
@@ -302,6 +317,56 @@ export class Plant {
       u.progress = 0; u.done++;
       this.kits.push({ id: ++this.kitSeq, dest: this.nextDest(), e: this.rackKit() });
     }
+  }
+
+  // 랙에 올라온 입고 키트를 분류 버퍼에 넣는다(중복 없음).
+  acceptIn(e) {
+    if (!e || !this.parts.get(e.id) || this.kits.some((k) => k.e === e)) return;
+    if (this.rack && !this.rack.items.includes(e)) return;
+    this.kits.push({ id: ++this.kitSeq, dest: this.nextDest(), e });
+    this.units[this.def.source].done++;
+  }
+
+  // 도어트림 입고: 충전 자리에서 원재료를 싣고 SORT 랙 뒤(SORT:RAW)에 하역. 적재는 북쪽 양팔 도크.
+  inMission() {
+    const S = this.def.source, sw = this.work[S];
+    const loadT = this.proc?.cells?.[S]?.inbound?.load ?? 5;
+    const m = {
+      raw: true,
+      from: null,
+      what: { pick: '도어트림 입고', wait: '원재료 적재 대기', hand: '원재료 적재', tag: '입고', dock: S, carry: () => `${S} 뒤쪽 도크로 하역` },
+      ready: () => !this.units[S].down,
+      pickup: (a) => {
+        m.e = this.parts.add('kit', { k: 'amr', id: a.id }, this.kitSpec);
+        return this.timer(loadT);
+      },
+      load: (a) => ({ id: `R${m.e.id}`, e: m.e, dest: RAW_IN, amr: a.id, raw: true }),
+      dest: () => (this.acs.ok(RAW_IN) ? RAW_IN : null),
+      canDrop: () => !this.units[S].down && this.rack.items.includes(null) && !sw.busy(),
+      unload: (a) => {
+        const e = a.load?.e;
+        if (!e) return this.timer(1);
+        m.U = sw.unload(e, { k: 'amr', id: a.id }, toLocal(this.cellPose(S), a), (kit) => this.acceptIn(kit), a.heading);
+        return m.U;
+      },
+      drop: (load) => {
+        if (this.inM === m) this.inM = null;
+        if (load.e) this.acceptIn(load.e);
+      },
+      abort: (a) => {
+        if (this.inM === m) this.inM = null;
+        if (m.T && !m.T.released) m.T.cancel = true;
+        if (m.U?.started) return;
+        if (m.U) m.U.cancel = true;
+        const e = a?.load?.e ?? m.e;
+        if (e && this.parts.get(e.id) && e.holder.k !== 'rack' && e.holder.k !== 'pair') {
+          const i = this.rack.items.indexOf(e);
+          if (i >= 0) this.rack.items[i] = null;
+          this.parts.remove(e);
+        }
+      },
+    };
+    return m;
   }
 
   rackKit() {
@@ -347,15 +412,16 @@ export class Plant {
   // (첫 스테이션이 비고 예약 없는) 셀 수만큼만 — 싣은 채 기다리는 차가 반출 차를 막지 않게.
   // 반출 미션은 마지막 스테이션이 반출 앞 단계에 들어서면 셀마다 하나씩 건다.
   dispatch() {
-    const S = this.def.source, src = this.units[S];
-    const soon = !src.down && src.state === 'BUSY' && (1 - src.progress) * this.def.cycle[S] < 10 ? 1 : 0;
-    let need = Math.min(this.def.stage, this.kits.length + soon) - this.acs.pendingFrom(S);
+    const S = this.def.source;
+    // 키트가 랙에 오른 뒤에만 반출 AMR 을 보낸다 — 빈 차가 양팔 도크를 점유하면 입고가 막힌다.
+    let need = Math.min(this.def.stage, this.kits.length) - this.acs.pendingFrom(S);
     const outs = this.outCells();
+    const kitJob = (m) => m && !m.out && !m.raw;
     if (outs.length && need > 0) {
       const fleet = this.acs.amrs.filter((a) => !a.off).length;
-      const inbound = this.acs.amrs.filter((a) => a.mission && !a.mission.out).length + this.acs.queue.filter((m) => !m.out).length;
+      const inbound = this.acs.amrs.filter((a) => kitJob(a.mission)).length + this.acs.queue.filter(kitJob).length;
       const open = this.def.sinks.filter((id) => { const cw = this.work[id]; return cw && !this.units[id].down && cw.canAccept(false) && !cw.reserved; }).length;
-      need = Math.min(need, fleet > outs.length ? fleet - outs.length - inbound : open - this.acs.amrs.filter((a) => a.mission && !a.mission.out && !a.load).length - this.acs.queue.filter((m) => !m.out).length);
+      need = Math.min(need, fleet > outs.length ? fleet - outs.length - inbound : open - this.acs.amrs.filter((a) => kitJob(a.mission) && !a.load).length - this.acs.queue.filter(kitJob).length);
     }
     for (let i = 0; i < need; i++) this.acs.request(this.mission());
     for (const id of outs) {
@@ -368,7 +434,7 @@ export class Plant {
   pickSink(kit) {
     if (!this.outCells().length) return this.acs.ok(kit.dest) ? kit.dest : this.nextDest();
     for (const id of this.def.sinks) if (this.work[id]?.reserved === kit.amr) this.work[id].reserved = null;
-    const order = [kit.dest, ...this.def.sinks.filter((id) => id !== kit.dest)].filter((id) => this.acs.ok(id));
+    const order = [kit.dest, ...this.def.sinks.filter((id) => id !== kit.dest)].filter((id) => id && this.acs.ok(id));
     if (!order.length) return this.nextDest();
     for (const id of order) {
       const cw = this.work[id];
@@ -417,7 +483,7 @@ export class Plant {
     const S = this.def.source, cap = this.def.stock.cap;
     const m = {
       from: S,
-      ready: () => !this.units[S].down && this.kits.length > 0,
+      ready: () => !this.units[S].down && this.kits.length > 0 && !this.work[S]?.busy?.(),
       load: (a) => {
         const i = Math.max(0, this.kits.findIndex((k) => k.e && k.e === m.picked));
         const k = this.kits.splice(i, 1)[0];

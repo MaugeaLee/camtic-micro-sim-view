@@ -11,6 +11,7 @@ export class PartsSiteView {
   constructor(scene, size) {
     this.root = new THREE.Group();
     this.root.name = 'parts-site';
+    this.root.userData.siteId = 'PARTS';
     this.root.visible = false;
     scene.add(this.root);
     this.build(size);
