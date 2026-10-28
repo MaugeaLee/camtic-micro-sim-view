@@ -2,6 +2,7 @@
 // 메시 userData.partId = `${cell}:${name}`. 기구 링크는 rig 루트로 옮겨져 있으므로 붙인 뒤 태그를 단다.
 // 선택은 AABB 상자 없이 그 메시 색만 바꾼다(공유 재질은 복제).
 import * as THREE from 'three';
+import { camLens } from './livecam.js';
 
 const baseName = (n) => String(n ?? '').replace(/\.\d+$/, '');
 const SKIP = new Set(['state-frame', 'state-floor', 'state-label', 'rig', 'lift', 'cells']);
@@ -11,6 +12,7 @@ export class EquipView {
   constructor(scene) {
     this.scene = scene;
     this.items = new Map();
+    this.cams = new Map();
     this.box = new THREE.Box3();
     this.litId = null;
     this.lit = [];
@@ -20,13 +22,19 @@ export class EquipView {
 
   clear() {
     this.unmark();
+    for (const cam of this.cams.values()) cam.parent?.remove(cam);
+    this.cams.clear();
     this.items.clear();
   }
 
   // work: CellWork/SortWork, rigCell: RigView.cells 항목, liftRoot: LiftView 루트
   bind(cellId, { obj, work, rigCell, liftRoot } = {}) {
     if (this.litId && this.items.get(this.litId)?.cell === cellId) this.unmark();
-    for (const [id, it] of [...this.items]) if (it.cell === cellId) this.items.delete(id);
+    for (const [id, it] of [...this.items]) if (it.cell === cellId) {
+      this.cams.get(id)?.parent?.remove(this.cams.get(id));
+      this.cams.delete(id);
+      this.items.delete(id);
+    }
     if (!work) return;
     const robots = work.robots
       ? (Array.isArray(work.robots) ? work.robots : Object.values(work.robots))
@@ -56,6 +64,14 @@ export class EquipView {
     if (!uniq.length) return;
     for (const o of uniq) tag(o, id);
     this.items.set(id, { id, cell, kind, objs: uniq });
+    if (kind === 'arm') {
+      const last = uniq[uniq.length - 1];
+      const cam = camLens({ scale: 0.65 });
+      cam.position.set(0, 0.04, 0.06);
+      last.add(cam);
+      tag(cam, id);
+      this.cams.set(id, cam);
+    }
   }
 
   pickables() {

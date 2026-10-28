@@ -38,7 +38,16 @@ export function equipmentStatus(state, id) {
       : part ? partStatus(state, part)
         : robotStatus(state, state.plant?.robots.find((r) => r.id === id));
   if (!body) return null;
-  return { schema: STATUS_SCHEMA, assumed: true, source: 'sim', t: r3(state.time), id, ...body };
+  const cam = camMeta(body.kind, id);
+  return { schema: STATUS_SCHEMA, assumed: true, source: 'sim', t: r3(state.time), id, ...body, ...(cam ? { cam } : {}) };
+}
+
+function camMeta(kind, id) {
+  if (kind === 'arm' || kind === 'body') return { type: 'wrist', label: '로봇 캠' };
+  if (kind === 'amr') return String(id).startsWith('F-AMR') ? { type: 'fork', label: '포크 캠' } : { type: 'front', label: '전방 캠' };
+  if (kind === 'hound') return { type: 'head', label: '헤드 캠' };
+  if (kind === 'drone') return { type: 'gimbal', label: '짐벌 캠' };
+  return null;
 }
 
 // ── 셀 ──

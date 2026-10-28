@@ -27,6 +27,43 @@ export function readGlb(buf) {
   return { magic, version, length, json, bin, errors };
 }
 
+// JSON(+BIN)을 다시 glTF 바이너리로. 디스크에 쓰지 않고 로더가 같은 바이트를 Three 에 넘길 때 쓴다.
+export function writeGlb(json, bin) {
+  const text = new TextEncoder().encode(JSON.stringify(json));
+  const jsonPad = (4 - (text.length % 4)) % 4;
+  const jsonChunk = text.length + jsonPad;
+  const raw = bin ? (bin instanceof Uint8Array ? bin : new Uint8Array(bin)) : null;
+  const binPad = raw ? (4 - (raw.length % 4)) % 4 : 0;
+  const binChunk = raw ? raw.length + binPad : 0;
+  const total = 12 + 8 + jsonChunk + (raw ? 8 + binChunk : 0);
+  const out = new Uint8Array(total);
+  const dv = new DataView(out.buffer);
+  dv.setUint32(0, MAGIC, true);
+  dv.setUint32(4, 2, true);
+  dv.setUint32(8, total, true);
+  dv.setUint32(12, jsonChunk, true);
+  dv.setUint32(16, CHUNK_JSON, true);
+  out.set(text, 20);
+  out.fill(0x20, 20 + text.length, 20 + jsonChunk);
+  if (raw) {
+    const at = 20 + jsonChunk;
+    dv.setUint32(at, binChunk, true);
+    dv.setUint32(at + 4, CHUNK_BIN, true);
+    out.set(raw, at + 8);
+  }
+  return out;
+}
+
+export function glbBuffer(u8) {
+  if (u8 instanceof ArrayBuffer) return u8;
+  if (u8 instanceof Uint8Array) {
+    return u8.byteOffset === 0 && u8.byteLength === u8.buffer.byteLength
+      ? u8.buffer
+      : u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
+  }
+  return u8;
+}
+
 // 기본 씬의 루트 노드 이름.
 export function rootNames(json) {
   const scene = json?.scenes?.[json.scene ?? 0];

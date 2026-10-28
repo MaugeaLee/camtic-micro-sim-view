@@ -1,6 +1,6 @@
 // 부속 부품 공급(가정). 도어트림 AMR 과 따로 도는 두 번째 ACS(자기 루트·충전 자리)가 두 구간을 맡는다:
-//   ① 창고 → SORT 투입: 라인 팔레트 남은 수가 reorder 이하인 라인마다 요청이 쌓이고, 부품 AMR 하나가 창고에서 쌓인 요청만큼(최대 batch)
-//      토트를 싣고 SORT 투입 자리(SORT:IN)에 선다. 투입 이송기가 다 옮기면 다른 일로 간다.
+//   ① 창고 → SORT 투입: 라인 팔레트 남은 수가 reorder 이하인 라인마다 요청이 쌓이고, 부품 AMR 하나가 창고에 서면 휴머노이드가
+//      쌓인 요청만큼(최대 batch) 토트를 적재면에 올리고 SORT 투입 자리(SORT:IN)로 간다. 투입 이송기가 다 옮기면 다른 일로 간다.
 //   ② SORT 레인 → 라인: 컨베이어 바코드 스캔으로 토트의 목적 라인 → 레인(색)이 정해지면 그 레인 자리 픽업 미션을 건다. AMR 이 레인 자리에
 //      미리 와서 기다리다 내림 이송기가 내려 준 토트를 받아 그 라인 적재 팔레트 도크로 가 상자를 덤프한다.
 //      셀 직교이송이 상자를 롤러에 올리고, 롤러가 당기면 협동로봇이 상자에서 부품을 집는다(토트는 비울 때까지 유지).
@@ -10,6 +10,8 @@
 import { Acs } from './acs.js';
 import { partsLayout, toLocal } from './layout.js';
 import { SLOW } from './incidents.js';
+import { HumanoidWork, amrDeckAt, humanoidDef } from './humanoid.js';
+import { toteColor } from './process.js';
 
 export const PARTS_SITE = 'PARTS';
 export const INFEED = 'SORT:IN';
@@ -53,6 +55,8 @@ export class Supply {
     this.resetting = false;
     const h = S.tote.size[1];
     this.slots = [[-0.27, 0, 0], [0.27, 0, 0], [-0.27, 0, h], [0.27, 0, h]].slice(0, S.batch);
+    this.depot = new HumanoidWork(PARTS_SITE, humanoidDef(S.humanoid, { time: S.load }), plant.parts);
+    this.bins = (S.bins?.length ? S.bins : [S.shelf]).map((p) => [p.x, p.y, p.z]);
     for (const id of plant.def.sinks) {
       const cw = plant.work[id];
       if (!cw?.lines) continue;
@@ -79,6 +83,7 @@ export class Supply {
   }
 
   step(h) {
+    this.depot.step(h);
     this.dispatch();
     this.acs.step(h);
   }
@@ -122,18 +127,22 @@ export class Supply {
       // 공급 차질(운영자 주입): 중단이면 창고 도크에서 기다리고(요청은 쌓임), 지연이면 적재 시간이 늘어난다.
       ready: () => P.supplyHold?.('parts')?.mode !== 'stop',
       pickup: (a) => {
+        if (this.depot.busy) return false;
         if (this.fetch === m) this.fetch = null;
         const take = this.waiting.splice(0, S.batch);
+        if (!take.length) return false;
         this.picked += take.length;
-        const at = [S.shelf.x, S.shelf.y, S.shelf.z];
         const load = S.load * (P.supplyHold?.('parts')?.mode === 'slow' ? SLOW : 1);
         m.totes = take.map((x, i) => {
-          const e = P.parts.add('tote', { k: 'drop', cell: PARTS_SITE, at }, { size: S.tote.size, h: S.tote.size[1], color: S.tote.color ?? '#2f7dd1', part: x.L.part, dock: x.dock, n: S.qty });
+          const bin = this.bins[i % this.bins.length];
+          const e = P.parts.add('tote', { k: 'drop', cell: PARTS_SITE, at: bin }, { size: S.tote.size, h: S.tote.size[1], color: toteColor(P.proc, { part: x.L.part, dock: x.dock }), part: x.L.part, dock: x.dock, n: S.qty });
           const to = { k: 'amr', id: a.id, at: this.slots[i] };
-          P.move(e, to, load);
-          return { e, x, to };
+          const deck = amrDeckAt(P, PARTS_SITE, to);
+          return { e, x, to, from: bin, toAt: deck.at, toYaw: deck.yaw };
         });
-        m.T = P.timer(load, () => { for (const t of m.totes) P.parts.hold(t.e, t.to, t.e.holder); });
+        m.T = this.depot.offer(m.totes.map((t) => ({
+          e: t.e, from: t.from, to: t.to, toAt: t.toAt, fromYaw: 0, toYaw: t.toYaw, time: load, label: `${PARTS_SITE} 출고`,
+        })));
         return m.T;
       },
       load: () => ({ id: ++this.seq, totes: m.totes, dest: null }),
@@ -150,9 +159,10 @@ export class Supply {
         if (this.fetch === m) this.fetch = null;
         if (m.T && !m.T.released) m.T.cancel = true;
         if (m.U && !m.U.released) m.U.cancel = true;
-        for (const t of m.totes) {
+        if (m.T) this.depot.cancel(m.T);
+        for (const t of m.totes ?? []) {
           const k = P.parts.get(t.e.id)?.holder.k;
-          if (k !== 'amr' && k !== 'move' && k !== 'drop') continue;
+          if (k !== 'amr' && k !== 'move' && k !== 'drop' && k !== 'human') continue;
           P.parts.remove(t.e);
           t.x.L.incoming = 0;
         }

@@ -1,7 +1,8 @@
-// 도어트림 원재료 창고(STORE, 가정 — 부품 창고 동쪽): 선반 칸마다 지그째 키트 엔티티. 입고 부품 AMR 이 도크에 서면 한 칸을 적재면으로 옮기고,
-// 빈 칸은 입고 팔레트(receive)에서 restock 초마다 한 칸씩 채운다. 창고 밖 물류(트럭·지게차)는 가정이고 그리지 않는다.
-// 키트는 칸·팔레트 → 옮김(move) → 칸·AMR 으로만 간다 — AMR·랙 위에서 생기지 않는다. DOM·three 없음.
+// 도어트림 원재료 창고(STORE, 가정 — 부품 창고 동쪽): 선반 칸마다 지그째 키트 엔티티. 입고 부품 AMR 이 도크에 서면
+// 휴머노이드가 한 칸을 집어 적재면에 올리고, 빈 칸은 입고 팔레트(receive)에서 restock 초마다 한 칸씩 채운다.
+// 창고 밖 물류(트럭·지게차)는 가정이고 그리지 않는다. 키트는 칸·팔레트 → 휴머노이드 → AMR — AMR·랙 위에서 생기지 않는다. DOM·three 없음.
 import { SLOW } from './incidents.js';
+import { HumanoidWork, amrDeckAt, humanoidDef } from './humanoid.js';
 
 export class Store {
   // def: process cells.SORT.inbound.store, plant: move·timer·time·parts 를 쓴다
@@ -14,6 +15,7 @@ export class Store {
     this.next = 0;
     this.received = 0;
     this.taken = 0;
+    this.arm = new HumanoidWork(id, humanoidDef(def.humanoid, { time: def.move }), plant.parts);
     for (let i = 0; i < this.items.length; i++) this.items[i] = plant.parts.add('kit', this.holder(i), spec);
   }
 
@@ -23,10 +25,14 @@ export class Store {
   // 칸에 놓인(옮기는 중 아님) 키트 수
   get ready() { return this.items.filter((e) => e && e.holder.k === 'store').length; }
 
-  step() {
+  step(h = 0) {
+    this.arm.step(h);
+    for (let n = 0; n < this.items.length; n++) {
+      const e = this.items[n];
+      if (e && e.holder.k === 'amr') this.items[n] = null;
+    }
     const P = this.plant, i = this.items.indexOf(null);
-    if (i < 0 || P.time < this.next) return;
-    // 공급 차질(운영자 주입): 중단이면 채우지 않고, 지연이면 재보충 간격을 늘린다.
+    if (i < 0 || P.time < this.next || this.arm.busy) return;
     const hold = P.supplyHold?.('raw');
     if (hold?.mode === 'stop') return;
     const r = this.def.receive;
@@ -38,23 +44,27 @@ export class Store {
     P.timer(this.def.move, () => { if (P.parts.get(e.id)) P.parts.hold(e, this.holder(i), e.holder); });
   }
 
-  // 도크에 선 AMR 로 한 칸. 티켓(released = 적재면에 닿음)과 키트. 칸이 비었으면 null.
+  // 도크에 선 AMR 로 한 칸. 티켓(released = 적재면에 닿음)과 키트. 칸이 비었거나 휴머노이드가 바쁜 경우 null.
   take(a, dur) {
-    const P = this.plant, i = this.items.findIndex((e) => e && e.holder.k === 'store');
+    if (this.arm.busy) return null;
+    const i = this.items.findIndex((e) => e && e.holder.k === 'store');
     if (i < 0) return null;
     const e = this.items[i], to = { k: 'amr', id: a.id };
-    this.items[i] = null;
-    this.next = Math.max(this.next, P.time + this.def.move);
+    this.next = Math.max(this.next, this.plant.time + this.def.move);
     this.taken++;
-    P.move(e, to, dur);
-    const T = P.timer(dur, () => { if (P.parts.get(e.id)) P.parts.hold(e, to, e.holder); });
-    return { e, T };
+    const deck = amrDeckAt(this.plant, this.id, to);
+    const T = this.arm.offer([{
+      e, from: this.pt(i), to, toAt: deck.at, fromYaw: 0, toYaw: deck.yaw, time: dur ?? this.arm.time, label: `${this.id} 출고`,
+    }]);
+    return T ? { e, T } : null;
   }
 
-  // 싣던 키트를 거둠: 빈 칸이 있으면 그 칸으로 돌려놓고, 없으면 지운다(창고로 반납한 셈).
+  // 싣던 키트를 거둠: 같은 칸에 아직 있으면 그 칸으로, 빈 칸이 있으면 그 칸으로, 없으면 지운다.
   giveBack(e) {
     const P = this.plant;
     if (!e || !P.parts.get(e.id)) return;
+    const have = this.items.indexOf(e);
+    if (have >= 0) { P.parts.hold(e, this.holder(have)); return; }
     const i = this.items.indexOf(null);
     if (i < 0) { P.parts.remove(e); return; }
     this.items[i] = e;

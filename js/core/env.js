@@ -10,5 +10,17 @@ export const UNITS = Object.freeze({ length: 'm', up: 'Y' });
 
 export const SPEEDS = Object.freeze([1, 3, 10, 30]);
 
+// 뷰어 부팅 기본: 3배속 재생. ?play=0 이면 정지, ?speed=1|3|10|30 이면 그 배속.
+export const BOOT_SPEED = 3;
+
+export function bootClock(search, prev = {}) {
+  const p = search instanceof URLSearchParams ? search : new URLSearchParams(String(search ?? ''));
+  const n = Number(p.get('speed'));
+  const speed = SPEEDS.includes(n) ? n : (SPEEDS.includes(prev.speed) ? prev.speed : BOOT_SPEED);
+  const play = p.get('play');
+  const running = play === '0' ? false : play === '1' ? true : prev.running ?? true;
+  return { speed, running };
+}
+
 // 시뮬 한 스텝 상한(초). 배속이 커도 이 단위로 쪼개 진행한다.
 export const MAX_STEP = 0.1;

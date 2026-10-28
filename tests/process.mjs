@@ -5,7 +5,7 @@ import { readGlb } from '../js/assets/glb.js';
 import { cellRig } from '../js/assets/rigdata.js';
 import { CellWork } from '../js/sim/cellwork.js';
 import { Parts } from '../js/sim/parts.js';
-import { flowTime, passOf, quadOf, validateProcess, workDef } from '../js/sim/process.js';
+import { flowTime, passOf, quadOf, toteColor, validateProcess, workDef } from '../js/sim/process.js';
 import { SCENARIOS } from '../js/sim/scenario.js';
 import { AMR } from '../js/sim/fleet.js';
 import { ViewerState } from '../js/sim/state.js';
@@ -44,6 +44,15 @@ check('리프트 자리 = 레이아웃 PRESS·SCREW 정차 칸(AMR_MAIN_JIG 자�
   return Math.abs(s.x - L.x) < 1e-9 && Math.abs(s.z - L.z) < 1e-9;
 }));
 check('부품 자리 → 사분면 구역(PRESS 한 단계 네 투입이 서로 다른 구역)', new Set(Object.values(P.parts).map((p) => quadOf(p.at))).size === 4);
+{
+  const names = Object.values(doc.cells).flatMap((C) => Object.keys(C.parts ?? {}));
+  const cols = names.map((p) => toteColor(doc, { part: p }));
+  check('부품(라인 역할)마다 토트 상자 색이 다름', names.length >= 8 && new Set(cols).size === names.length, names.map((p, i) => `${p}:${cols[i]}`).join(' '));
+  check('토트 상자 색이 예전 공통 파랑만은 아님', cols.some((c) => c !== '#2f7dd1'));
+  check('레인 B 도크(PRESS:L01)는 P_HDL 색', toteColor(doc, { part: 'P_HDL', dock: 'PRESS:L01' }) === doc.supply.tote.colors.P_HDL);
+  const badC = clone(doc); badC.supply.tote.colors.P_HDL = 'blue';
+  check('tote.colors 가 #RRGGBB 아니면 오류', validateProcess(badC, { cycle }).some((e) => e.includes('tote.colors')));
+}
 {
   const bad = clone(doc); bad.cells.PRESS.passes[0].steps[2][0].time = 6;
   check('단계 합이 takt 와 다르면 오류', validateProcess(bad, { cycle }).some((e) => e.includes('takt')));
@@ -301,7 +310,7 @@ for (const withRig of [false, true]) {
     for (const e of P.parts.list()) {
       if (known.has(e.id)) continue;
       known.add(e.id);
-      if (e.type === 'kit' && !(e.holder.k === 'move' || e.holder.k === 'drop')) born.push(`${e.id}:${e.holder.k}`);
+      if (e.type === 'kit' && !(e.holder.k === 'move' || e.holder.k === 'drop' || e.holder.k === 'human' || e.holder.k === 'store')) born.push(`${e.id}:${e.holder.k}`);
     }
     const a = P.allAmrs.find((x) => x.mission?.raw && !x.load && x.ticket && !x.ticket.released);
     if (P.acs.amrs.some((x) => x.mission?.raw)) born.push('도어트림 AMR 이 입고 미션');
@@ -441,7 +450,8 @@ for (const withRig of [false, true]) {
   check('라인 팔레트 시작 수 = supply.start(0) · 보이는 부품 없음', P.supply.lines.every((x) => x.L.left === (U.start ?? 0) && !x.L.stock && !x.L.items.length), P.supply.lines.map((x) => x.L.left).join(','));
   check('PRESS·SCREW 시작 키트 0 · 첫 움직임은 운송 AMR', P.units.PRESS.stock === 0 && P.units.SCREW.stock === 0 && !['PRESS', 'SCREW'].some((id) => P.work[id].lift.kit));
   const path = [], fetchers = new Set(), lane = { amr: null, stop: null };
-  let step = null, beltStall = 0, maxBelt = 0, dumped = null, onRail = null, fromBox = null;
+  const toteColors = new Map();
+  let step = null, beltStall = 0, maxBelt = 0, dumped = null, onRail = null, fromBox = null, fetchDeck = null;
   for (let i = 0; i < 12000; i++) {
     const was = { left: L.left, incoming: L.incoming };
     s.step(0.1);
@@ -458,12 +468,21 @@ for (const withRig of [false, true]) {
     }
     if (t?.holder.k === 'line') onRail = t;
     if (t && t.n < U.qty) fromBox = t;
-    if (H?.k === 'amr' && path.length <= 2) fetchers.add(H.id);
+    if (H?.k === 'amr' && !path.some((p) => p.startsWith('xfer:'))) fetchers.add(H.id);
+    for (const e of P.parts.items.values()) if (e.type === 'tote' && e.part) toteColors.set(e.part, e.color);
+    for (const a of P.supply.acs.amrs) {
+      if (a.load?.e || !(a.load?.totes?.length >= 2)) continue;
+      const cols = a.load.totes.map((t) => t.e?.color).filter(Boolean);
+      if (new Set(cols).size >= 2) fetchDeck = { n: cols.length, colors: cols };
+    }
     if (step != null && onRail && fromBox && i > 2000) break;
   }
   const iB = path.indexOf('belt:main'), iL = path.indexOf('belt:B');
-  check('토트 경로: 부품 AMR → 투입 이송기 → 컨베이어 → 레인 B → 내림 이송기 → 레인 AMR',
-    path[0]?.startsWith('amr:P-AMR-') && path[1]?.startsWith('xfer:') && iB > 1 && iL > iB && path[iL + 1]?.startsWith('xfer:') && path[iL + 2]?.startsWith('amr:P-AMR-'), path.join(' → '));
+  const iA = path.findIndex((p) => p.startsWith('amr:P-AMR-'));
+  check('창고에서 나온 토트 색 = 부품 역할(서로 다름)', toteColors.size >= 2 && new Set(toteColors.values()).size === toteColors.size, JSON.stringify(Object.fromEntries(toteColors)));
+  check('PARTS 출고 AMR 위 상자가 역할마다 다른 색 · load.e 없음(파란 덮개 숨김)', fetchDeck && new Set(fetchDeck.colors).size >= 2, JSON.stringify(fetchDeck));
+  check('토트 경로: 휴머노이드 → 부품 AMR → 투입 이송기 → 컨베이어 → 레인 B → 내림 이송기 → 레인 AMR',
+    path.includes('human') && iA >= 0 && path[iA + 1]?.startsWith('xfer:') && iB > iA && iL > iB && path[iL + 1]?.startsWith('xfer:') && path[iL + 2]?.startsWith('amr:P-AMR-'), path.join(' → '));
   check('레인 AMR 은 SORT 레인 B 칸(정차 칸 3번째 레인)에서 받는다', lane.amr != null && lane.stop === 3, JSON.stringify(lane));
   check('팔레트 보충 +qty', step === U.qty, `보충 ${step}`);
   check('덤프 뒤 토트가 남음(작은 부품으로 안 바뀜)', dumped?.type === 'tote' && (dumped.holder.k === 'stock' || dumped.holder.k === 'gantry' || dumped.holder.k === 'line') && dumped.n > 0, dumped ? `${dumped.holder.k} n=${dumped.n}` : '없음');

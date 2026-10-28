@@ -16,7 +16,6 @@
   <div class="brand-row">
     <div class="brand">Micro-Cell Viewer</div>
     <a class="toplink" id="lnkDash" href="dashboard" target="_blank" rel="noopener" title="장 B 구독 대시보드 · 수신 점검(서버 필요)">구독·점검</a>
-    <button type="button" id="btnAdmin">Admin</button>
   </div>
   <div class="controls">
     <select id="scenarioSel" title="시나리오 (가정값)"></select>
@@ -97,6 +96,11 @@
     <button type="button" id="dtClose" title="닫기 (Esc)" aria-label="닫기">✕</button>
   </div>
   <div id="dtSub" class="detail-sub"></div>
+  <div id="dtLiveWrap" class="live-wrap" hidden>
+    <canvas id="dtLive" width="480" height="270" aria-label="온보드 라이브 뷰"></canvas>
+    <b id="dtLiveCap" class="live-cap">라이브</b>
+    <em id="dtLiveWait" class="live-wait" hidden>라이브 대기</em>
+  </div>
   <div id="dtMon" class="detail-body soft-scroll"></div>
   <div id="dtJson" class="detail-body soft-scroll" hidden>
     <div class="detail-actions">
@@ -123,7 +127,7 @@
 <nav id="footTools" class="dock" aria-label="운영 시나리오 주입">
   <div id="dockCoach" class="dock-coach" hidden>
     <b>공장에 변수를 넣어 보세요</b>
-    <span>고장·공급 차질·현장 이벤트를 주입하면 AMR·셀·드론이 어떻게 반응하는지 바로 볼 수 있어요. 「공정 추적」은 도어트림 하나를 입고부터 적재까지 따라갑니다</span>
+    <span>고장·공급 차질·현장 이벤트를 주입하면 AMR·셀·드론이 어떻게 반응하는지 바로 볼 수 있어요. 「라벨 숨기기」는 머리 위 표기, 「공정 추적」은 도어트림 하나를 입고부터 적재까지 따라갑니다. 오른쪽 아래 화살표로 이 패널을 내릴 수 있어요</span>
     <button type="button" id="dockCoachClose" aria-label="안내 닫기">닫기</button>
   </div>
   <span class="dock-cap">시나리오 주입</span>
@@ -153,16 +157,22 @@
     <span class="tx"><b>공정 추적</b><small>입고→적재 따라가기</small></span>
   </button>
   <span class="dock-sep"></span>
+  <button type="button" class="dk dk-labels on" id="btnLabels" title="머리 위 라벨 숨기기">
+    <span class="ic"><svg viewBox="0 0 24 24"><path d="M4 12V6.5A1.5 1.5 0 0 1 5.5 5H12l8 8-6.5 6.5z"/><circle cx="8.2" cy="8.8" r="1.15"/></svg></span>
+    <span class="tx"><b>라벨 숨기기</b><small>머리 위 표기</small></span>
+  </button>
+  <span class="dock-sep"></span>
   <button type="button" class="dk dk-reset" id="btnFootReset" title="공장 상태를 처음부터. 레이아웃은 유지">
     <span class="ic"><svg viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1L3.5 8.5"/><path d="M3.5 3.5v5h5"/></svg></span>
     <span class="tx"><b>리셋</b></span>
   </button>
   <button type="button" class="dk-help" id="btnDockHelp" title="이 패널 사용 안내" aria-label="사용 안내" aria-expanded="false">?</button>
+  <button type="button" class="dk-hide" id="btnDockHide" title="아래로 숨기기" aria-label="아래로 숨기기" aria-expanded="true" aria-controls="footTools"></button>
 </nav>
+<button type="button" id="btnDockShow" class="dock-show" hidden title="리모컨 패널 보이기" aria-label="리모컨 패널 보이기" aria-controls="footTools">리모컨 패널 보이기</button>
 
 <footer class="bottombar">
   <span id="statusLine">부팅 중…</span>
-    <button type="button" id="btnLabels" class="on" title="머리 위 라벨 표시">라벨</button>
 </footer>
 
 <script>

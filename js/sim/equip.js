@@ -24,6 +24,13 @@ export function findEquip(state, id) {
   return listEquip(state).find((e) => e.id === id) ?? null;
 }
 
+// 머리 위·셀 목록: 양팔은 몸통만 그린다(L/R 팔 라벨은 안 붙임). 상태·모니터 id 는 listEquip 그대로.
+export function labelEquip(list) {
+  const xs = list ?? [];
+  const body = new Set(xs.filter((e) => e.kind === 'body').map((e) => e.cell));
+  return xs.filter((e) => !(e.kind === 'arm' && body.has(e.cell)));
+}
+
 function pushWork(out, cell, cw) {
   const robots = cw.robots
     ? (Array.isArray(cw.robots) ? cw.robots : Object.values(cw.robots))

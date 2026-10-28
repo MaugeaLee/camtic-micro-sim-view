@@ -2,6 +2,7 @@
 import { readFile } from 'node:fs/promises';
 import { ViewerState } from '../js/sim/state.js';
 import { amrTag, clip, equipTag, robotTag, siteTag, TAG_COLOR } from '../js/render/label-text.js';
+import { labelEquip } from '../js/sim/equip.js';
 
 let pass = 0, fail = 0;
 const check = (name, ok, info = '') => { ok ? pass++ : fail++; console.log(`  ${ok ? 'PASS' : 'FAIL'} ${name}${info ? ' — ' + info : ''}`); };
@@ -61,6 +62,10 @@ check('clip 길면 자름', clip('키트 #12 실은 채 대기(받을 셀 없음
   check('셀 DOWN 이면 장비 라벨 빨강', down.color === TAG_COLOR.down);
   const lift = equipTag({ id: 'PRESS:LIFT', cell: 'PRESS', name: 'LIFT', kind: 'lift' }, { cellState: 'BUSY', work: { lift: { phase: 'rise' } } });
   check('리프트 올림', lift.sub === '올림' && lift.color === TAG_COLOR.busy);
+  const body = equipTag(s.equipOf('SORT:Dual_arm_robot'), { cellState: 'IDLE', work: s.plant.work.SORT });
+  check('SORT 양팔 라벨은 몸통', body.title === 'SORT:Dual_arm' && body.sub === '대기');
+  const vis = labelEquip(s.equip).map((e) => e.id);
+  check('SORT L/R 팔은 머리 위·목록에 안 그림', vis.includes('SORT:Dual_arm_robot') && !vis.includes('SORT:Dual_arm_L') && !vis.includes('SORT:Dual_arm_R'));
 }
 
 console.log(`  ${pass} pass, ${fail} fail`);

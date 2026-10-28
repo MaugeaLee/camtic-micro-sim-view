@@ -4,7 +4,7 @@ import * as THREE from 'three';
 
 const M = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.2, ...o });
 const box = (w, h, d, mat) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.castShadow = true; m.receiveShadow = true; return m; };
-const TOTES = ['#2f7dd1', '#3a8f5c', '#c8763a', '#7a5cc2'];
+const TOTES = ['#3498db', '#1a5276', '#f39c12', '#f6c85a', '#e74c3c', '#f5b7b1', '#5c5c5c', '#95a5a6'];
 
 export class PartsSiteView {
   // size: 바닥 {w, d} (layout FOOTPRINT.PARTS)

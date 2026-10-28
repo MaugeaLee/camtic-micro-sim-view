@@ -1,7 +1,7 @@
 // 셀 안 장비 id(sim/equip.js): 로봇·직교이송·리프트·몸통을 AMR처럼 고를 수 있다.
 import { readFile } from 'node:fs/promises';
 import { ViewerState } from '../js/sim/state.js';
-import { findEquip, listEquip, parseEquipId } from '../js/sim/equip.js';
+import { findEquip, labelEquip, listEquip, parseEquipId } from '../js/sim/equip.js';
 import { equipmentIds, equipmentStatus } from '../js/data/monitor.js';
 
 let pass = 0, fail = 0;
@@ -23,6 +23,9 @@ console.log('equip');
   check('PRESS 로봇 R6–R10', ['R6', 'R7', 'R8', 'R9', 'R10'].every((n) => ids.includes(`PRESS:${n}`)), ids.filter((x) => x.startsWith('PRESS:R')).join(','));
   check('SCREW 로봇·라인·리프트', ['SCREW:R1', 'SCREW:L01', 'SCREW:LIFT'].every((id) => ids.includes(id)));
   check('SORT 양팔·몸통', ['SORT:Dual_arm_L', 'SORT:Dual_arm_R', 'SORT:Dual_arm_robot'].every((id) => ids.includes(id)));
+  const vis = labelEquip(s.equip).map((e) => e.id);
+  check('SORT 라벨은 몸통만(L/R 숨김)', vis.includes('SORT:Dual_arm_robot') && !vis.includes('SORT:Dual_arm_L') && !vis.includes('SORT:Dual_arm_R'));
+  check('PRESS 팔 라벨은 그대로', vis.includes('PRESS:R6'));
   check('OUT 은 셀 장비가 아님', !ids.some((id) => id.startsWith('OUT:')));
   check('state.equip = listEquip', s.equip.length === ids.length && s.equipOf('PRESS:R6')?.kind === 'arm');
   check('없는 장비 follow 거부', throws(() => s.follow('PRESS:NOPE')));

@@ -1,8 +1,9 @@
 // GLB 에셋 로딩·캐시. URL은 호출측이 넘긴 assetUrl.
-// 바이트를 한 번 받아 (1) glb.js 로 셀 프레임(바닥·중심 오프셋)과 기구(rigdata.js, 셀 로컬 평범한 데이터)를 계산하고 (2) 같은 바이트를 GLTFLoader 에 넘긴다.
+// 바이트를 한 번 받아 (1) glb.js 로 셀 프레임(바닥·중심 오프셋)과 기구(rigdata.js, 셀 로컬 평범한 데이터)를 계산하고 (2) PRESS 북쪽 짧은 레일은 rail-fit.js 로 남쪽 행정에 맞춘 뒤 (3) 그 바이트를 GLTFLoader 에 넘긴다. GLB 파일은 그대로.
 // 로더가 노드 이름을 바꾸므로(점 제거 등) 객체마다 GLB 노드 index 를 userData.node 에 남긴다 — 기구 데이터는 index 로 가리킨다.
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { cellFrame, readGlb } from './glb.js';
+import { cellFrame, glbBuffer, readGlb, writeGlb } from './glb.js';
+import { fitRails } from './rail-fit.js';
 import { cellRig } from './rigdata.js';
 
 export const RENDER = { loaded: new Map(), frames: new Map(), rigs: new Map(), models: new Map(), errors: new Map(), loading: null };
@@ -19,12 +20,29 @@ export function loadAssets(keys, { base } = {}) {
       const res = await fetch(`${base}${encodeURIComponent(key)}.glb`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const buf = await res.arrayBuffer();
-      const { json, bin } = readGlb(buf);
-      const frame = cellFrame(json);
-      const gltf = await loader.parseAsync(buf, base);
+      let packed = buf;
+      let parsed = readGlb(buf);
+      try {
+        if (key === 'PRESS' && parsed.json && fitRails(parsed.json, parsed.bin)) packed = writeGlb(parsed.json, parsed.bin);
+      } catch (e) {
+        RENDER.errors.set(`${key}:rail-fit`, e?.message ?? String(e));
+        packed = buf;
+        parsed = readGlb(buf);
+      }
+      let gltf;
+      try {
+        gltf = await loader.parseAsync(glbBuffer(packed), base);
+      } catch (e) {
+        if (packed === buf) throw e;
+        RENDER.errors.set(`${key}:rail-fit-parse`, e?.message ?? String(e));
+        packed = buf;
+        parsed = readGlb(buf);
+        gltf = await loader.parseAsync(glbBuffer(buf), base);
+      }
+      const frame = cellFrame(parsed.json);
       tagNodes(gltf);
       RENDER.frames.set(key, frame);
-      try { RENDER.rigs.set(key, cellRig(json, bin, { frame })); }
+      try { RENDER.rigs.set(key, cellRig(parsed.json, parsed.bin, { frame })); }
       catch (e) { RENDER.errors.set(`${key}:rig`, e?.message ?? String(e)); }
       RENDER.loaded.set(key, gltf.scene);
     } catch (e) {

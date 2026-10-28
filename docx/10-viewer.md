@@ -11,17 +11,18 @@ npm start          → .env 의 HOST:PORT (예제 127.0.0.1:8790)
 npm test           → tests/*.mjs 헤드리스
 /api/docs          → Swagger UI
 ?assets=1          → 셀 GLB 자동 로드 (기본 꺼짐)
-Admin 버튼         → 타이틀 오른쪽. 짓기(집기·놓기) 켜고 끔. `?build=1` 이면 켠 채로 시작. 짓기 칸 「공장 초기화」= 시뮬 시각·재고·AMR을 처음부터(레이아웃은 유지)
-좌·우 패널         → 가장자리 버튼으로 해당 쪽으로 접기. 남은 탭을 누르면 다시 연다. 셀·로그·장비 모니터 스크롤은 유리 패널 톤의 가는 막대(`.soft-scroll`)
+?build=1|route|parts → Admin 짓기(셀 배치·AMR 경로·부품 AMR 도크). 타이틀 버튼 없음. 짓기 칸 「공장 초기화」= 시뮬 시각·재고·AMR을 처음부터(레이아웃은 유지)
+좌·우 패널         → 가장자리 버튼으로 해당 쪽으로 접기. 남은 탭을 누르면 다시 연다. 아래는 하단 리모컨 독 위에 멈춤. 장비 모니터(Detail)는 셀 패널 오른쪽에 붙고, 셀 패널을 접으면 같이 왼쪽으로 옮김. 셀·로그·장비 모니터 스크롤은 유리 패널 톤의 가는 막대(`.soft-scroll`)
 ?scenario=faults   → 시나리오(기본 faults · supply · none). 상단 드롭다운으로도 바꿈
 ?amr=2             → 도어트림 AMR 대수 1~10 (기본 = 시나리오 값 6)
-?play=1            → 재생 상태로 시작
+부팅               → 3배속 재생. `?play=0` 정지 · `?speed=1|3|10|30` 배속
+?play=1            → 재생 상태로 시작(기본과 같음)
 ?warp=130          → 점검용. 시뮬을 그만큼 미리 진행. 저장된 공장 상태는 읽지 않음
 ?fresh=1           → 저장된 공장 상태를 읽지 않고 처음부터
 ?focus=SORT        → 점검용. 셀 id · AMR id(AMR-01) · 로봇 id(HOUND-01·HOUND-02·DRONE-01..03) · 셀 장비 id(PRESS:R6)에 카메라 포커스
 ?drones=0          → 드론 대수 0~3 (기본 = 시나리오 값 3)
 ?inspect=0         → 설비 점검 견마(HOUND-02) 끔
-셀·셀 안 장비·AMR·로봇 클릭   → 장비 모니터(상태·공정·신호). 셀 안 로봇/직교이송/리프트는 `PRESS:R6` 처럼 따로 고른다. 「JSON」 탭 = 상태 문서 원문(복사·내려받기·고정). 콘솔 __viewer.status('PRESS:R6')
+셀·셀 안 장비·AMR·로봇 클릭   → 장비 모니터(상태·공정·신호). 셀 안 로봇/직교이송/리프트는 `PRESS:R6` 처럼 따로 고른다. 로봇·AMR·견마·드론은 온보드 가상 카메라 라이브(에고센트릭) 칸. 「JSON」 탭 = 상태 문서 원문(복사·내려받기·고정). 콘솔 __viewer.status('PRESS:R6') · __viewer.liveCam('AMR-01')
 공정 추적           → 하단 독 버튼. 다음 입고를 공정 단위 핵심 장비로 따라가며 타임라인·JSON 리포트(가정). `?trace=1` · `__viewer.trace`
 npm run demo       → 장 B 데모 소스(프로세스 안 브로커·가짜 FAC)와 같이 시작. /dashboard 확인용
 npm run bridge     → 조인 브리지(V3-3, 뷰어 서버와 별개 프로세스). `-- --b-demo` 면 데모 소스를 구독. 형식은 `09` 「조인」
@@ -68,25 +69,29 @@ index.html  import map → js/main.js
 | sim | `cellwork.js` | 셀 안 공정(PRESS·SCREW): 작업대 리프트(올림·내림 핸드셰이크)·방문(pass) 단계·로봇 작업·사분면 구역 잠금·갠트리·롤러 큐 | three·DOM, 실제 셀 제어 모델처럼 쓰기 |
 | sim | `sortwork.js` | SORT 양팔 입고·적재: 공유 대차·몸통 회전·두 팔 IK 추종·하역/적재 티켓 | three·DOM, 실제 셀 제어 모델처럼 쓰기 |
 | sim | `outwork.js` | 완료품 적재 구역(OUT, 가정): 협동로봇 픽·책장 칸·묶음 출하·하역 티켓 | three·DOM, 실제 설비처럼 쓰기 |
-| sim | `supply.js` | 부속 부품 공급(가정): 라인 팔레트 재고 → 재주문점 이하면 부품 AMR 플릿(별도 ACS)이 창고 토트를 SORT 투입으로, 스캔된 토트는 레인 AMR이 라인으로 | 도어트림 ACS와 미션 섞기, three·DOM |
+| sim | `humanoid.js` | 창고 휴머노이드(가정): PARTS·STORE 선반 → 부품 AMR 적재. 보행 구역·파지 티켓 | three·DOM, 실제 설비처럼 쓰기 |
+| sim | `supply.js` | 부속 부품 공급(가정): 라인 팔레트 재고 → 재주문점 이하면 부품 AMR 플릿(별도 ACS)이 창고 토트를 SORT 투입으로, 스캔된 토트는 레인 AMR이 라인으로. 상자 색은 라인 부품(역할)마다 (`toteColor`) | 도어트림 ACS와 미션 섞기, three·DOM |
 | sim | `sortfeed.js` | SORT 분류(가정): 투입 이송기 → 컨베이어 → 바코드 스캔 → 분기 이송기 → 레인 롤러 → 내림 이송기(한 축 + 승강) | three·DOM, 실제 분류기 제어처럼 쓰기 |
 | sim | `hound.js` | 견마 관제 보행(가정): 통로 순찰·양보·실제 이상만 Event·자체 리커버리. 도크 정박 제외 | three·DOM, 레일 AMR·OCS·PLC 처럼 쓰기 |
-| sim | `equip.js` | 셀 안 장비 id(`PRESS:R6`). 로봇·직교이송·리프트·몸통 목록. 셀 GLB 를 파일로 쪼개지 않음 | three·DOM, 메시마다 id 부여 |
+| sim | `equip.js` | 셀 안 장비 id(`PRESS:R6`). 로봇·직교이송·리프트·몸통 목록. `labelEquip` 은 SORT 양팔 L/R 을 숨기고 몸통만 라벨 | three·DOM, 메시마다 id 부여 |
 | data | `hub.js` | 시뮬 시간 기준 주기 스냅샷(JSON) | 상태 변경, 전송 루프 |
 | data | `plant.js` | 공장 이어가기 dump/validate/`restoreTime`(같은 스텝 재생). 레이아웃·공정 fingerprint | 상태 변경, 서버 I/O |
-| data | `monitor.js` | 장비 하나의 상태 문서(JSON, `microsim.equipment-status/1`): 셀·AMR·순찰 로봇·셀 안 장비(`PRESS:R6`). 같은 장비는 신호 id 목록이 시간에 따라 바뀌지 않는다. UI 「장비 모니터」와 `__viewer.status(id)` 가 읽음 | 상태 변경, PLC 태그·주소·OCS 수집 규격처럼 쓰기 |
+| sim | `livecam.js` | 온보드 가상 카메라 자세(가정): 로봇 손목 · AMR 전방 · 견마 헤드 · 드론 짐벌. 필드 좌표. 녹화·감지 없음 | three·DOM, 실제 카메라처럼 쓰기 |
+| data | `monitor.js` | 장비 하나의 상태 문서(JSON, `microsim.equipment-status/1`): 셀·AMR·순찰 로봇·셀 안 장비(`PRESS:R6`). 온보드 캠이 있으면 `cam` 메타. 같은 장비는 신호 id 목록이 시간에 따라 바뀌지 않는다. UI 「장비 모니터」와 `__viewer.status(id)` 가 읽음 | 상태 변경, PLC 태그·주소·OCS 수집 규격처럼 쓰기 |
 | data | `trace.js` | 키트 하나 공정 추적 문서(`microsim.process-trace/1`). 다음 입고를 잡아 SORT→SCREW 1차→PRESS→SCREW 2차→OUT 단계 시각·대기·순서를 쌓는다. 입고가 Cell 작업에 밀리면 `waitWhy`에 그 Cell 하나만 적는다(AMR 충돌·묶음 문구 없음). UI 「공정 추적」·`__viewer.trace` | 상태 변경, 확정 공정·OCS 실측처럼 쓰기 |
 | render | `stage.js` | 렌더러·씬·카메라·컨트롤 1벌. 리사이즈·컨텍스트 손실 | 화면 분할 보조 뷰포트, 상태 보관 |
 | render | `monitor.js` | 관제 모니터(M-29, 가정): 뒷벽 화면 한 장, 내부 CCTV 가상 카메라 6대를 렌더 타깃 3×2 칸에(프레임마다 한 칸). 정의는 `field-def.js` `MONITOR`·`CCTV`. 칸 렌더 때 모니터를 숨겨 되먹임을 막고, 그림자 맵 갱신은 끄지 않는다(끄면 칸이 어둡게 나옴). `?cctv=0` 끔 | 녹화·감지·카메라 배치 최적화(F12), sim import |
+| render | `livecam.js` | 온보드 라이브(가정): 포커스된 장비 하나만 렌더 타깃 → Detail 캔버스(8 fps). 렌즈 메시는 그릴 때 숨김. `?livecam=0` 끔 | 녹화·감지·송출, sim import |
 | render | `view.js` | 셀별 그룹, 에셋 부착, 이벤트 → 상태 테두리·바닥 틴트·라벨, 선택 강조 | 상태 변경 |
 | render | `label-text.js` | 머리 위 라벨 문구·색(AMR·드론·견마·자리·셀 장비). three·DOM 없음 | 좌표·그리기 |
-| render | `label.js` `tags.js` | 셀 밖 머리 위 스프라이트. 좌표는 main 이 넘김. 하단 「라벨」로 CellView와 같이 켜고 끔 | 상태 변경 |
+| render | `label.js` `tags.js` | 셀 밖 머리 위 스프라이트. 좌표는 main 이 넘김. 하단 독 「라벨 보이기/숨기기」로 CellView와 같이 켜고 끔 | 상태 변경 |
 | render | `equip.js` | 셀 안 장비 픽·월드 AABB 포커스·선택 시 메시 색만 바꿈. 메시 `userData.partId` | 상태 변경, 셀 파일을 쪼개기, 선택 AABB 상자 |
-| render | `fleet.js` | AMR 차체·바퀴·상태등·토트, 남은 경로선, ACS 레일·도크·대기 칸 바닥 표시. 레일은 `rails.js` 계획(직선 간선 + 교차점은 가장 넓은 간선 방향의 정사각 패치, 원 표시 없음) | sim import (main이 칸 좌표를 넘김) |
+| render | `fleet.js` | AMR 차체·바퀴·상태등·토트(키트·PARTS `load.totes` 엔티티가 있으면 숨김), 남은 경로선, ACS 레일·도크·대기 칸 바닥 표시. 레일은 `rails.js` 계획(직선 간선 + 교차점은 가장 넓은 간선 방향의 정사각 패치, 원 표시 없음) | sim import (main이 칸 좌표를 넘김) |
 | render | `rails.js` | AMR 바닥 레일 기하. three·DOM 없음 | 배차·경로 결정 |
 | render | `outsite.js` | 완료품 적재 구역 절차 형상(PRESS 절반 셀 프레임·울타리·뒷벽 책장·레일 협동로봇), 시뮬 joints 그대로 | sim import (main이 view·자리를 넘김) |
 | render | `partsite.js` | 부속 부품 창고 절차 형상(바닥·선반 3단·토트·이송 테이블) | sim import (main이 자리를 넘김) |
 | render | `storesite.js` | 도어트림 원재료 창고 절차 형상(바닥·2단 선반·입고 팔레트). 칸 위 키트는 `parts.js` 가 그림 | sim import (main이 자리·공정 정의 칸을 넘김) |
+| render | `humanoid.js` | PARTS·STORE 휴머노이드 절차 형상(몸통·팔·보행). 시뮬 view 그대로 | sim import (main이 view·자리를 넘김) |
 | render | `hound.js` | 견마: 참조 레포 사족 GLB + 대각 보행. 시뮬 위치 그대로 | sim import |
 | render | `camera.js` `pick.js` | 포커스 이동·따라가기 · 클릭(끌기 아님) 선택 | 상태 변경 (콜백으로 요청) |
 | render | `field-def.js` | 필드 치수 정의(가정)·검증. three·DOM 없음 | 셀 배치 |
@@ -94,14 +99,14 @@ index.html  import map → js/main.js
 | render | `place.js` | 짓기 제스처(레이캐스트·고스트). 판정 함수는 main이 넘김 | 레이아웃 파일 저장 |
 | render | `rigs.js` | 셀 GLB 링크를 rig 루트로 옮겨 시뮬 관절각·레일·갠트리·롤러 값으로 행렬을 둠 | 기구학 결정(시뮬 값만 씀) |
 | render | `parts.js` | 엔티티 상자(시뮬이 준 필드 좌표·yaw) | 위치 계산 |
-| assets | `loader.js` | `assets/<key>.glb` 로드·캐시·복제. 노드 index → `userData.node`, 셀 기구 데이터 `RENDER.rigs` | 배치 결정 |
+| assets | `loader.js` | `assets/<key>.glb` 로드·캐시·복제. 노드 index → `userData.node`, 셀 기구 데이터 `RENDER.rigs`. PRESS 북쪽 레일(R7·R8)만 `rail-fit.js` 가 남쪽(R6·R9·R10) 행정에 맞춤(파일은 그대로). SORT 랙은 맞추지 않음 | 배치 결정 |
 | assets | `rigdata.js` | GLB → 셀 로컬 기구 데이터(팔 관절·TCP·레일·갠트리·롤러, 노드 index). three 없음 | 공정 지점 |
 | assets | `rig.js` | CAD 그룹 → 관절 추정. 점군·접촉만. 이름 표 없음 | three·DOM, 부품 수동 매핑 |
 | assets | `movers.js` | 팔·AMR·롤러·직교·레일 분류. 형상만. `inferRig`를 레일/바퀴/직교에 재사용하지 않음 | three·DOM, 종류 섞기 |
 | assets | `anim.js` | 관절각 `jointWave` · 이동 `travelWave` · 자전 `spinWave` · 직교 `gantryWave`. 셀마다 카메라 기본만 둠(PRESS `R8` · SCREW `R1` · SORT `Dual_arm_L`) | 축·원점 결정 |
 | assets | `scan.js` | 씬 그래프 → 운동 그룹 목록(점 추출 + `classifyMover`). 에셋 뷰어·메인 공용 | 판정 규칙 추가 (`movers.js`에서) |
 | assets | `preview.js` | `/api/asset-viewer` 테스트 뷰포트. 추정 결과를 피벗으로 조립 | 메인 시뮬 상태 |
-| ui | `ui.js` | 0.25초마다 상태를 읽어 그림. 입력은 콜백 | 상태 직접 변경 |
+| ui | `ui.js` | 0.25초마다 상태를 읽어 그림. 입력은 콜백. 독 숨김은 `html.dock-closed`, 셀 패널 접힘은 `html.cell-closed`(장비 모니터를 왼쪽으로) | 상태 직접 변경 |
 
 규칙:
 
@@ -281,7 +286,7 @@ micro-assembly 브라우저 ─POST─▶ micro-assembly 서버 ─ aedes :1883 
 
 ## 시나리오·ACS (`js/sim/scenario.js` `acs.js` `fleet.js` `route.js` `amrdata.js`)
 
-**가정 흐름.** 확정 공정이 아니다. 부품 AMR이 원재료 창고(`STORE`, 부품 창고 동쪽) 선반에서 지그째 키트를 싣고 SORT 랙 뒤(`SORT:RAW`)에 하역하면 협동로봇이 지그째 랙에 올리고(버퍼 2), 분류된 키트(지그 위 도어트림)를 북쪽 양팔 도크에서 메인 AMR MAIN 패널 위로 다시 싣는다. 공정 정의가 있으면 **공정 순서 `route` = SORT → SCREW → PRESS → SCREW → OUT**(M-37, 요청 순서 · 셀 안 배분·시간은 가정)이다. PRESS·SCREW 는 통과 리프트 셀: 메인 AMR 이 서쪽에서 들어와 `AMR_MAIN_JIG` 자리에 서면 리프트가 지그째 들어 올리고 AMR 은 그 밑으로 동쪽 출구까지 직진해 나간다. 작업이 끝나 갈 때(남은 시간 ≤ 20 s) 빈 AMR 이 같은 자리로 들어와 기다리고, 리프트가 지그를 내려 안착시키면 다음 칸으로 간다. 적재 구역(OUT)에서는 협동로봇이 도어트림만 내리고 빈 지그는 그 AMR 이 충전 자리로 가져간다(지그 회수·원재료 공급 자리 가정). 공정 정의가 없으면 예전처럼 수요 기반 목적지(SCREW 42 s·PRESS 40 s 사이클)로 나른다. 셀 상태: 키트 없음 IDLE · 작업 중 BUSY · 고장 DOWN. 기본 시나리오(`supply`)에는 고장이 없다. `faults`(점검용)만 540 s 주기로 PRESS→SORT→SCREW를 한 번씩 세운다.
+**가정 흐름.** 확정 공정이 아니다. STORE·PARTS 휴머노이드가 선반 지그·토트를 집어 부품 AMR 적재면에 올린다. 부품 AMR이 원재료 창고(`STORE`, 부품 창고 동쪽)에서 지그째 키트를 싣고 SORT 랙 뒤(`SORT:RAW`)에 하역하면 협동로봇이 지그째 랙에 올리고(버퍼 2), 분류된 키트(지그 위 도어트림)를 북쪽 양팔 도크에서 메인 AMR MAIN 패널 위로 다시 싣는다. 공정 정의가 있으면 **공정 순서 `route` = SORT → SCREW → PRESS → SCREW → OUT**(M-37, 요청 순서 · 셀 안 배분·시간은 가정)이다. PRESS·SCREW 는 통과 리프트 셀: 메인 AMR 이 서쪽에서 들어와 `AMR_MAIN_JIG` 자리에 서면 리프트가 지그째 들어 올리고 AMR 은 그 밑으로 동쪽 출구까지 직진해 나간다. 작업이 끝나 갈 때(남은 시간 ≤ 20 s) 빈 AMR 이 같은 자리로 들어와 기다리고, 리프트가 지그를 내려 안착시키면 다음 칸으로 간다. 적재 구역(OUT)에서는 협동로봇이 도어트림만 내리고 빈 지그는 그 AMR 이 충전 자리로 가져간다(지그 회수·원재료 공급 자리 가정). 공정 정의가 없으면 예전처럼 수요 기반 목적지(SCREW 42 s·PRESS 40 s 사이클)로 나른다. 셀 상태: 키트 없음 IDLE · 작업 중 BUSY · 고장 DOWN. 기본 시나리오(`supply`)에는 고장이 없다. `faults`(점검용)만 540 s 주기로 PRESS→SORT→SCREW를 한 번씩 세운다.
 
 **층 나눔.** `Plant`(scenario.js)는 셀 상태·키트·재고와 미션 요청만 한다. 운반은 전부 ACS(acs.js)다. ACS는 미션 큐·배차·경로 계획·예약을 맡고, AMR(fleet.js)은 받은 단계를 달리며 감지·양보만 한다.
 
@@ -360,13 +365,13 @@ micro-assembly 브라우저 ─POST─▶ micro-assembly 서버 ─ aedes :1883 
 
 **가정.** 공정 순서·시간·작업 지점·부품 치수는 `src/process.default.json`(`assumed: true`)의 가정값이다. 실측·확정 공정이 아니다. 시뮬의 셀 공정은 같은 역할의 JS 모델이고, 실제 셀의 로봇·서보 실시간 제어는 셀 PLC 몫이다. OCS는 수집·감독·재계획만 한다.
 
-**엔티티와 소유자.** 키트·부품마다 소유자가 정확히 하나다: (입고 팔레트 →) 원재료 창고 선반 칸(`store`) → 부품 AMR(입고) → 양팔 → SORT 랙 칸 → 양팔 → 메인 AMR MAIN 패널 → 리프트(`lift`, 셀 방문마다) → 메인 AMR → … → 적재 구역 협동로봇 → 책장 칸. 키트는 지그 + 도어트림 한 엔티티(`jig` 속성)이고, 적재 구역에서 협동로봇이 도어트림만 집는 순간 지그가 따로 엔티티(`jig`, 소유자 = 그 AMR)로 떨어진다. 부속 토트는 창고 → 부품 AMR → SORT 분류 → 라인 팔레트(`stock`) → 직교이송 → 롤러(`line`) → (비울 때까지) 협동로봇이 상자에서 부품을 집음(`tote`). 흐름 없는 셀은 지그 칸 옮김(4 s)만 한다. 옮김은 `parts.hold(e, 새 소유자, 예상 소유자)`만 쓴다. 예상과 다르면 위반으로 센다. 위치는 소유자에서 계산한다(AMR 위치·리프트 높이·로봇 TCP·갠트리 패드·라인 s). 그래서 소유가 바뀌는 순간 위치가 같아야 하고(클립은 AMR 적재면 높이에서 문다), 테스트가 스텝당 이동 ≤ 0.25 m를 본다.
+**엔티티와 소유자.** 키트·부품마다 소유자가 정확히 하나다: (입고 팔레트 →) 원재료 창고 선반 칸(`store`) → 창고 휴머노이드(`human`) → 부품 AMR(입고) → 양팔 → SORT 랙 칸 → 양팔 → 메인 AMR MAIN 패널 → 리프트(`lift`, 셀 방문마다) → 메인 AMR → … → 적재 구역 협동로봇 → 책장 칸. 키트는 지그 + 도어트림 한 엔티티(`jig` 속성)이고, 적재 구역에서 협동로봇이 도어트림만 집는 순간 지그가 따로 엔티티(`jig`, 소유자 = 그 AMR)로 떨어진다. 부속 토트는 창고 → 휴머노이드(`human`) → 부품 AMR → SORT 분류 → 라인 팔레트(`stock`) → 직교이송 → 롤러(`line`) → (비울 때까지) 협동로봇이 상자에서 부품을 집음(`tote`). 흐름 없는 셀은 지그 칸 옮김(4 s)만 한다. 옮김은 `parts.hold(e, 새 소유자, 예상 소유자)`만 쓴다. 예상과 다르면 위반으로 센다. 위치는 소유자에서 계산한다(AMR 위치·리프트 높이·로봇 TCP·갠트리 패드·라인 s). 그래서 소유가 바뀌는 순간 위치가 같아야 하고(클립은 AMR 적재면 높이에서 문다), 테스트가 스텝당 이동 ≤ 0.25 m를 본다.
 
 **작업물(도어트림).** 키트는 도어트림 한 장이다. 모델은 [micro-assembly](https://github.com/theuniversepark/micro-assembly) `assets/blender/doortrim.glb`(Blender 생성 형상, 실물 도면 아님)를 `src/render_asset/doortrim.glb`로 가져왔다. 공정 정의 `kit.model`이 에셋 키, `kit.lay`가 놓임(`upright` 세움 · `face-up` 앞면 위로 눕힘)이다. 기본은 지그에 눕혀 치수 1.2 × 0.16 × 0.6 m(x·높이·z, 가정)이고 `kit.fit: stretch` 라 렌더는 모델을 눕힌 뒤 x·z 를 따로 맞춘다(높이는 작은 쪽 배율). 그 밑에 도어트림 지그(`jig`, 1.3 × 0.05 × 0.76 m, 가정)를 깐다 — 키트 높이 0.21 m. 모델을 못 읽으면 치수 상자로 그리고 로그에 남긴다. 부품 자리 `at`은 `[dx, dz]` 또는 `[dx, dz, dy]`이고 dy(≤ 0, 키트 윗면 기준)로 트림 면 높이를 맞춘다: P_HDL 손잡이 자리, SW_BEZEL·PW_SW 스위치 패널, Fastener 클립 면. SCREW 부품: BELT_MLDG 벨트라인, SPK_GRL 스피커, INSERT 인서트, CUP_SUB 포켓. 부품 이름은 트림 부위 이름이고 SCREW GLB 라인 이름(A_REST·CUP_SUB·Antenna·UPR)과 맞추지 않았다. 자리·높이는 형상에서 읽은 가정값이다.
 
 **SORT 양팔 입고·적재(가정, M-31·M-33 · M-37 지그째).** 키트는 랙에 생기지 않는다. 양팔은 도어트림이 아니라 지그 테두리(키트 밑면 위 2.5 cm, `grip` 0.88)를 물고 지그째 옮긴다. 랙 2단은 지그 두께만큼 올렸다(1.44 · 1.65 m). 부품 AMR이 원재료 창고 도크에서 원재료를 싣고(5 s, 가정 — 아래 「원재료 창고」) 랙 뒤 막다른 칸(`SORT:RAW`, 셀 로컬 x 6.36 · z −4.4)에 서면 `unload` 티켓 → 양팔이 적재면 트림을 집어 랙에 놓음. 랙에 놓고 든 뒤(작업 0.88) `released` → AMR은 남쪽으로 후진 출차. 양팔은 하나라 입고와 적재를 동시에 하지 않는다. 분류 키트 적재는 반대편 북쪽 양팔 도크(`AMR_dual_pickup`): 빈 AMR이 서면 `pickup` 티켓 → 양팔이 랙 맨 위 지그 양끝을 같이 잡고 → 대차가 AMR 쪽으로 미끄러지며 몸통이 반 바퀴 돌아 → 메인 AMR MAIN 패널에 놓고 든 뒤(작업 0.88) `released` → AMR 출발. 입고·적재 각 12 s. 두 팔은 한 대차(`Dual_arm_slide`)에 앉아 있어 대차 위치 s를 같이 쓰고, 몸통 회전축은 두 팔 베이스 가운데 수직선으로 가정했다(GLB에 허리 관절 없음). 팔마다 관절 보간하면 두 그리퍼 사이가 벌어져서, 매 스텝 키트 중심(몸통 좌표)을 보간하고 두 팔이 IK로 양끝 점을 따라간다(직전 자세에서 시작). 랙은 앞쪽 끝(z −1.22)에 2단이다 — 3단 위 여유 높이와 랙 가운데는 팔이 닿지 않는다. 그래서 SORT 버퍼는 실제로 2다. 랙 트림은 몸통이 돈 만큼 반대로 놓여 있어 AMR에는 셀 기준 yaw 0으로 놓인다(도크에서 AMR이 셀 +x로 서 있다는 가정). 렌더는 팔에 대차·회전을 곱하고 몸통 그룹 `Dual_arm_robot`(이름으로 찾음)도 같이 움직인다. 취소(레이아웃 변경)되면 놓을 때 랙 제자리로 되돌린다.
 
-**원재료 창고 (가정).** 도어트림 키트(지그 + 도어트림)는 AMR 위에서 생기지 않는다. 자리 `STORE`(기본 16, −14 · 6×2 m)는 부속 부품 창고 `PARTS`(10, −14) 동쪽에 틈 없이 붙어 남쪽 창고 줄 하나를 이룬다. 2단 × 3칸 선반에 키트 엔티티(소유자 `store{cell,i}`)가 6개로 시작한다. **운반은 부품 AMR**(노랑, 부품 ACS)이 한다 — 도어트림 루트는 남쪽 창고 줄에 닿지 않고(남쪽 통로와 벽 사이 약 1.2 m), 두 창고가 같은 통로에 있어서다(2026-10-27 결정). 그래서 `STORE` 와 `SORT:RAW` 도크는 부품 루트(`layout.parts.cells`)에 있고, 도어트림 루트의 SORT 남쪽 지선(G1–R2–R1–R0)은 지웠다. 예전 레이아웃 파일의 도어트림 `SORT:RAW` 칸은 읽을 때 버린다. 입고 미션(`from: 'STORE'`, `Plant.inCarrier` = 부품 ACS): 부품 AMR이 남쪽 통로에서 창고 도크(셀 로컬 x −1.5 · z 1.3 — 맞은편 SCREW:L01 도크와 접속점이 겹치지 않게 서쪽으로 뺌)에 서면 한 칸의 키트가 적재면으로 옮겨 오고(`move`, `inbound.load` 5 s), 후진 출차해 남쪽 통로로 `SORT:RAW`(SORT 로컬 x 6.36, 남쪽 통로에서 북쪽으로 들어가는 막다른 칸)에 간다. 부품 충전 자리는 창고 서 2 · 동 4(피치 1.4 m, 맨 서쪽 x 4.4 · 맨 동쪽 x 26.6). 서쪽을 x 3.0 으로 늘리면 PRESS 남쪽 도크와 맞물려 교착이 나서 늘린 칸은 STORE 동쪽에 둔다(M-39). 빈 칸은 앞쪽 입고 팔레트(`inbound.store.receive`)에서 `restock` 30 s 간격으로 한 칸씩 3 s에 걸쳐 채운다. 창고 밖 물류(트럭·지게차)는 그리지 않는다. 미션을 거두면 실은 키트는 빈 칸으로 돌아간다. 재고 실사 드론은 창고 칸도 센다(장부 = 잡힌 칸). Admin 셀 배치에서 `STORE` 를 집어 옮길 수 있다. 공정 정의에 `inbound.store` 가 없거나 부품 플릿이 없으면 창고도 없다(그때는 도어트림 루트에 `SORT:RAW` 칸이 있을 때만 예전처럼 충전 자리에서 싣는다). 8 h 헤드리스(가정 사이클): PRESS 141 · 완료 141 · 토트 152, 첫 라인 채움 뒤 라인 재고 0 구간 없음(고장 시나리오 포함). 첫 채움은 약 644 s(예전 약 450 s) — 부품 AMR 이 입고까지 맡아서다. 15분 스모크에서 SORT 입고는 5(예전 > 5). 코드: `js/sim/store.js`, `js/sim/scenario.js` `inMission`·`inCarrier`, `js/sim/amrdata.js` `DEFAULT_PARTS_AMR`, `js/render/storesite.js`. 점검: `tests/process.mjs`(부품 AMR 이 창고 도크에서 싣기 · 도어트림 AMR 입고 0 · AMR·랙 위 새 키트 0 · 꺼낸 만큼 채움), `tests/layout.mjs`(PARTS 동쪽에 붙음), `tests/route.mjs`, `tests/server.mjs`.
+**원재료 창고 (가정).** 도어트림 키트(지그 + 도어트림)는 AMR 위에서 생기지 않는다. 자리 `STORE`(기본 16, −14 · 6×2 m)는 부속 부품 창고 `PARTS`(10, −14) 동쪽에 틈 없이 붙어 남쪽 창고 줄 하나를 이룬다. 2단 × 3칸 선반에 키트 엔티티(소유자 `store{cell,i}`)가 6개로 시작한다. **운반은 부품 AMR**(노랑, 부품 ACS)이 한다 — 도어트림 루트는 남쪽 창고 줄에 닿지 않고(남쪽 통로와 벽 사이 약 1.2 m), 두 창고가 같은 통로에 있어서다(2026-10-27 결정). 그래서 `STORE` 와 `SORT:RAW` 도크는 부품 루트(`layout.parts.cells`)에 있고, 도어트림 루트의 SORT 남쪽 지선(G1–R2–R1–R0)은 지웠다. 예전 레이아웃 파일의 도어트림 `SORT:RAW` 칸은 읽을 때 버린다. 입고 미션(`from: 'STORE'`, `Plant.inCarrier` = 부품 ACS): 부품 AMR이 남쪽 통로에서 창고 도크(셀 로컬 x −1.5 · z 1.3 — 맞은편 SCREW:L01 도크와 접속점이 겹치지 않게 서쪽으로 뺌)에 서면 휴머노이드가 선반 키트를 집어 적재면에 올리고(`human`, `inbound.load` 5 s), 후진 출차해 남쪽 통로로 `SORT:RAW`(SORT 로컬 x 6.36, 남쪽 통로에서 북쪽으로 들어가는 막다른 칸)에 간다. PARTS 토트도 같은 방식으로 휴머노이드가 선반에서 올린다. 부품 충전 자리는 창고 서 2 · 동 4(피치 1.4 m, 맨 서쪽 x 4.4 · 맨 동쪽 x 26.6). 서쪽을 x 3.0 으로 늘리면 PRESS 남쪽 도크와 맞물려 교착이 나서 늘린 칸은 STORE 동쪽에 둔다(M-39). 빈 칸은 앞쪽 입고 팔레트(`inbound.store.receive`)에서 `restock` 30 s 간격으로 한 칸씩 3 s에 걸쳐 채운다. 창고 밖 물류(트럭·지게차)는 그리지 않는다. 미션을 거두면 실은 키트는 빈 칸으로 돌아간다. 재고 실사 드론은 창고 칸도 센다(장부 = 잡힌 칸). Admin 셀 배치에서 `STORE` 를 집어 옮길 수 있다. 공정 정의에 `inbound.store` 가 없거나 부품 플릿이 없으면 창고도 없다(그때는 도어트림 루트에 `SORT:RAW` 칸이 있을 때만 예전처럼 충전 자리에서 싣는다). 8 h 헤드리스(가정 사이클): PRESS 141 · 완료 141 · 토트 152, 첫 라인 채움 뒤 라인 재고 0 구간 없음(고장 시나리오 포함). 첫 채움은 약 644 s(예전 약 450 s) — 부품 AMR 이 입고까지 맡아서다. 15분 스모크에서 SORT 입고는 5(예전 > 5). 코드: `js/sim/store.js`, `js/sim/scenario.js` `inMission`·`inCarrier`, `js/sim/amrdata.js` `DEFAULT_PARTS_AMR`, `js/render/storesite.js`. 점검: `tests/process.mjs`(부품 AMR 이 창고 도크에서 싣기 · 도어트림 AMR 입고 0 · AMR·랙 위 새 키트 0 · 꺼낸 만큼 채움), `tests/layout.mjs`(PARTS 동쪽에 붙음), `tests/route.mjs`, `tests/server.mjs`.
 
 **작업대 리프트 핸드셰이크(가정, M-37).** 리프트 자리 = `AMR_MAIN_JIG` 자리(셀 로컬 x 0.32). 지그 실은 메인 AMR 이 서면 `canDrop`(리프트 빔 · 티켓 없음) → `offer` 티켓(이 키트의 방문 pass) → 클립이 물고(올림 시간 0.3) 지그째 0.15 m 들어 올림(6 s) → `released` → AMR 은 들린 지그 밑으로 동쪽 출구까지 직진(후진·회전 없음). AMR 라벨 「SCREW 지그 올림 중」. 로봇은 AMR 위 키트를 집지 않는다 — 올림 동안 로봇 작업 없음. 지그가 뜬 채 그 pass 단계를 돈다. 남은 시간 ≤ 20 s(`PRE`)면 Plant 가 반출(hop) 미션을 건다 → 빈 AMR 이 같은 자리(지그 밑)에 서서 「작업 끝 대기」 → 작업이 끝나면 `offerOut` → 리프트가 내려(6 s) AMR 적재면에 안착(내림 시간 0.7)·클립 풀림 → `released` → AMR 은 동쪽으로 직진해 다음 칸(`route`)으로. 다음 칸이 리프트 셀이면 그 리프트가 비고 예약이 없을 때만 예약하고 가고(뒤 공정 키트 먼저, 같으면 먼저 분류된 키트), 아니면 실은 채 충전 자리에서 기다린다. 들린 지그 밑면 = 1.22 m, 메인 AMR 상판 위 클램프 1.085 m 보다 높다. 리프트 형상(기둥 4 · 와이어 · 클립 캐리지)은 그림용 가정이다(`render/lifts.js`). 레이아웃 변경으로 AMR 이 사라지면 클립이 아직 안 물었으면 되돌리고, 물었으면 셀이 갖는다.
 
@@ -413,7 +418,7 @@ SCREW takt 52 = 21 + 31. 체결은 경로 작업(TCP가 지점들을 지남)이�
 
 ## 하단 패널 · 운영자 주입 (`js/sim/incidents.js`)
 
-micro-assembly 하단 바(설비 고장 주입 · 자재 공급 차질 · 현장 이벤트 · AMR·AGV · CCTV · 리셋)를 이 시뮬 규모로 줄였다. 오케스트레이터·5G·FAC·진화 컨셉·3단계 비교는 가져오지 않았다. 사유·시간·배율은 모두 가정값이다. 버튼은 화면 아래 가운데 떠 있는 독(`#footTools`)에 있고, 기능마다 강조색이 다르다. 독 오른쪽 끝 「?」 를 눌러야 안내 말풍선이 뜬다(기본은 숨김). 「공정 추적」도 이 독에 있다. 실제 안전 PLC·OCS 연동이 아니다.
+micro-assembly 하단 바(설비 고장 주입 · 자재 공급 차질 · 현장 이벤트 · AMR·AGV · CCTV · 리셋)를 이 시뮬 규모로 줄였다. 오케스트레이터·5G·FAC·진화 컨셉·3단계 비교는 가져오지 않았다. 사유·시간·배율은 모두 가정값이다. 버튼은 화면 아래 가운데 떠 있는 독(`#footTools`)에 있고, 기능마다 강조색이 다르다. 독 오른쪽 끝 「?」 를 눌러야 안내 말풍선이 뜬다(기본은 숨김). 「공정 추적」·「라벨 보이기/숨기기」도 이 독에 있다. 오른쪽 화살표는 독을 아래로 숨기고, 「리모컨 패널 보이기」로 다시 올린다. 실제 안전 PLC·OCS 연동이 아니다.
 
 | 버튼 | 하는 일 | 시뮬 연결 |
 |---|---|---|
@@ -430,7 +435,7 @@ micro-assembly 하단 바(설비 고장 주입 · 자재 공급 차질 · 현장
 
 ## 메인 뷰 표현
 
-- **셀 상태.** 발자국 둘레 띠와 바닥 틴트로 보인다. 색은 IDLE 회색, BUSY 초록, DOWN 빨강(점멸)이다. 머리 위 라벨에는 id, 상태, 재고/완료, 진행 막대가 나온다. 하단 「라벨」은 셀뿐 아니라 AMR·드론·견마·자리(OUT·PARTS·STORE)·셀 장비(`PRESS:R6`) 머리 위 표기를 같이 숨긴다. 좌·우 패널 글자는 그대로다.
+- **셀 상태.** 발자국 둘레 띠와 바닥 틴트로 보인다. 색은 IDLE 회색, BUSY 초록, DOWN 빨강(점멸)이다. 머리 위 라벨에는 id, 상태, 재고/완료, 진행 막대가 나온다. 하단 독 「라벨 보이기/숨기기」는 셀뿐 아니라 AMR·드론·견마·자리(OUT·PARTS·STORE)·셀 장비(`PRESS:R6`) 머리 위 표기를 같이 숨긴다. SORT 양팔은 L/R 팔이 아니라 몸통(`Dual_arm_robot`)에만 붙인다. 좌·우 패널 글자는 그대로다.
 - **선택.** 테두리가 굵고 밝아지며 바닥이 펄스한다. 목록이나 3D 클릭으로 고르고, Esc나 빈 곳 클릭으로 해제한다. 셀 바닥·테두리는 셀 통째, 로봇·직교이송·리프트·SORT 몸통은 `PRESS:R6` 처럼 따로(그 메시 색만 바꿈, 상자 없음).
 - **카메라.** 셀을 고르면 그쪽으로 0.9 s 동안 이동한다. AMR·셀 안 장비를 고르면 이동한 뒤 따라간다. 사용자가 궤도를 잡으면 이동을 멈추고, 평행 이동 따라가기만 유지한다.
 

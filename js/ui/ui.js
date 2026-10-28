@@ -1,5 +1,6 @@
 // DOM 패널. 상태를 주기적으로 읽어 그린다(풀 방식). 입력은 콜백으로 main 에 넘긴다.
 import { SPEEDS } from '../core/env.js';
+import { labelEquip } from '../sim/equip.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -11,14 +12,15 @@ const fmtTime = (t) => {
 const amrDot = (a) => (a.halt ? 'low' : a.battery < 30 ? 'low' : a.charging ? 'charge' : a.mode === 'park' && !a.steps.length ? '' : a.moving ? 'move' : 'wait');
 
 export class UI {
-  constructor({ onPlay, onSpeed, onSelect, onFollow, onScenario, onPlace, onDownload, onImport, onSave, onReset, onAdmin, onBuildMode, onDetailClose, onTrace, onTraceClose, onLabels, onInject, onClearIncident, onFleetSpeed, onFleetHalt, onCctv } = {}) {
-    this.cb = { onPlay, onSpeed, onSelect, onFollow, onScenario, onPlace, onDownload, onImport, onSave, onReset, onAdmin, onBuildMode, onDetailClose, onTrace, onTraceClose, onLabels, onInject, onClearIncident, onFleetSpeed, onFleetHalt, onCctv };
+  constructor({ onPlay, onSpeed, onSelect, onFollow, onScenario, onPlace, onDownload, onImport, onSave, onReset, onBuildMode, onDetailClose, onTrace, onTraceClose, onLabels, onInject, onClearIncident, onFleetSpeed, onFleetHalt, onCctv } = {}) {
+    this.cb = { onPlay, onSpeed, onSelect, onFollow, onScenario, onPlace, onDownload, onImport, onSave, onReset, onBuildMode, onDetailClose, onTrace, onTraceClose, onLabels, onInject, onClearIncident, onFleetSpeed, onFleetHalt, onCctv };
     this.lastLog = 0;
+    this.liveOff = false;
     this.detail = { doc: null, tab: 'mon', hold: false };
     this.el = {
       play: $('btnPlay'), speed: $('speedSeg'), clock: $('clock'), cells: $('cellList'), log: $('logList'),
       status: $('statusLine'), build: $('buildBar'), place: $('placeSeg'), mode: $('buildMode'), hint: $('buildHint'),
-      dl: $('btnLayoutDl'), up: $('btnLayoutUp'), save: $('btnLayoutSave'), reset: $('btnPlantReset'), file: $('layoutFile'), admin: $('btnAdmin'),
+      dl: $('btnLayoutDl'), up: $('btnLayoutUp'), save: $('btnLayoutSave'), reset: $('btnPlantReset'), file: $('layoutFile'),
       scenario: $('scenarioSel'), fleet: $('fleetBox'), amrs: $('amrList'), fleetSum: $('fleetSum'), acs: $('acsLine'),
       trace: $('btnTrace'), labels: $('btnLabels'),
     };
@@ -57,7 +59,6 @@ export class UI {
       this.el.file.value = '';
       if (f) this.cb.onImport?.(f);
     });
-    this.el.admin?.addEventListener('click', () => this.cb.onAdmin?.());
     this.el.trace?.addEventListener('click', () => this.cb.onTrace?.());
     this.el.labels?.addEventListener('click', () => {
       const on = !this.el.labels.classList.contains('on');
@@ -73,8 +74,8 @@ export class UI {
   // ── 하단 패널: 설비 고장 주입 · 자재 공급 차질 · 현장 이벤트 · AMR · CCTV · 리셋 ──
   // 카탈로그(사유·시간·배율)는 main 이 sim/incidents.js 에서 넘긴다(setCatalog). 입력 칸은 열 때만 그리고 목록만 주기적으로 다시 그린다.
   bindFoot() {
-    const F = (this.ft = { tools: $('footTools'), box: $('footPanel'), title: $('fpTitle'), sub: $('fpSub'), icon: $('fpIcon'), form: $('fpForm'), list: $('fpList'), hint: $('fpHint'), coach: $('dockCoach') });
-    this.foot = { open: null, sig: '', dur: {}, mode: 'stop', cat: null, cctv: true, state: null, help: false };
+    const F = (this.ft = { tools: $('footTools'), box: $('footPanel'), title: $('fpTitle'), sub: $('fpSub'), icon: $('fpIcon'), form: $('fpForm'), list: $('fpList'), hint: $('fpHint'), coach: $('dockCoach'), hide: $('btnDockHide'), show: $('btnDockShow') });
+    this.foot = { open: null, sig: '', dur: {}, mode: 'stop', cat: null, cctv: true, state: null, help: false, hidden: false };
     if (!F.tools || !F.box) return;
     F.tools.addEventListener('click', (e) => {
       if (e.target.closest('.dk')) this.setHelp(false);
@@ -85,6 +86,8 @@ export class UI {
     $('fpClose')?.addEventListener('click', () => this.openFoot(null));
     $('btnDockHelp')?.addEventListener('click', () => this.setHelp(!this.foot.help));
     $('dockCoachClose')?.addEventListener('click', () => this.setHelp(false));
+    F.hide?.addEventListener('click', () => this.setDock(false));
+    F.show?.addEventListener('click', () => this.setDock(true));
     addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return;
       if (this.foot.open) this.openFoot(null);
@@ -135,6 +138,22 @@ export class UI {
     F.icon.innerHTML = F.tools.querySelector(`[data-foot="${kind}"] .ic`)?.innerHTML ?? '';
     F.sub.textContent = FOOT_SUB[kind] ?? '';
     if (this.foot.state) this.drawFoot(this.foot.state);
+  }
+
+  setDock(on) {
+    const F = this.ft;
+    const hidden = !on;
+    if (!F?.tools || this.foot.hidden === hidden) return;
+    this.foot.hidden = hidden;
+    if (hidden) {
+      this.openFoot(null);
+      this.setHelp(false);
+    }
+    F.tools.classList.toggle('closed', hidden);
+    F.tools.setAttribute('aria-hidden', String(hidden));
+    F.hide?.setAttribute('aria-expanded', String(!hidden));
+    document.documentElement.classList.toggle('dock-closed', hidden);
+    if (F.show) F.show.hidden = !hidden;
   }
 
   // 독 오른쪽 「?」로만 여는 사용 안내 말풍선. 열려 있는 동안 「설비 고장」 버튼에 물결. 독 버튼·닫기·Esc 로 닫힘.
@@ -299,7 +318,7 @@ export class UI {
 
   // ── 장비 모니터: 상태 문서(data/monitor.js)를 표(모니터)와 원문(JSON)으로 ──
   bindDetail() {
-    const D = (this.dt = { box: $('detail'), title: $('dtTitle'), state: $('dtState'), tabs: $('dtTabs'), sub: $('dtSub'), mon: $('dtMon'), json: $('dtJson'), pre: $('dtPre') });
+    const D = (this.dt = { box: $('detail'), title: $('dtTitle'), state: $('dtState'), tabs: $('dtTabs'), sub: $('dtSub'), live: $('dtLiveWrap'), cap: $('dtLiveCap'), wait: $('dtLiveWait'), mon: $('dtMon'), json: $('dtJson'), pre: $('dtPre') });
     if (!D.box) return;
     $('dtClose')?.addEventListener('click', () => this.cb.onDetailClose?.());
     D.tabs.addEventListener('click', (e) => {
@@ -346,7 +365,7 @@ export class UI {
     const prev = this.detail.doc?.id;
     this.detail.doc = doc;
     D.box.hidden = !doc;
-    if (!doc) { this.detail.shown = null; return; }
+    if (!doc) { this.detail.shown = null; this.drawLive(null); return; }
     if (prev !== doc.id && this.detail.hold) {
       this.detail.hold = false;
       const b = D.json.querySelector('[data-act="hold"]');
@@ -364,12 +383,34 @@ export class UI {
     D.state.textContent = d.state;
     D.state.className = `st st-${String(d.state).toLowerCase()}`;
     D.sub.textContent = `${d.name} · ${KIND[d.kind] ?? d.kind} · 시뮬 ${fmtTime(d.t)}${this.detail.hold ? ' · 고정' : ''}`;
+    this.drawLive(d);
     if (this.detail.tab === 'json') {
       const text = pretty(d);
       if (D.pre.textContent !== text) D.pre.textContent = text;
       return;
     }
     D.mon.innerHTML = [processHtml(d), robotsHtml(d.robots), signalsHtml(d.signals)].join('');
+  }
+
+  // 온보드 캠이 있는 장비만 라이브 칸을 연다. 픽셀은 main 이 렌더 타깃에서 붙인다.
+  drawLive(doc) {
+    const D = this.dt;
+    if (!D?.live) return;
+    const cam = doc?.cam;
+    D.live.hidden = !cam || this.liveOff;
+    if (D.cap) D.cap.textContent = cam ? `라이브 · ${cam.label}` : '';
+    if (D.live.hidden && D.wait) D.wait.hidden = true;
+  }
+
+  liveId() {
+    if (!this.detail.doc?.cam || this.dt?.box?.hidden) return null;
+    return this.detail.doc.id;
+  }
+
+  setLiveReady(ok) {
+    const D = this.dt;
+    if (!D?.wait || D.live?.hidden) return;
+    D.wait.hidden = !!ok;
   }
 
   // ── 공정 추적: 키트 하나 타임라인 + JSON 리포트 ──
@@ -471,6 +512,11 @@ export class UI {
       const name = p.classList.contains('left') ? '셀 패널' : '로그 패널';
       const apply = (closed) => {
         p.classList.toggle('closed', closed);
+        if (p.classList.contains('left')) {
+          document.documentElement.classList.toggle('cell-closed', closed);
+          const d = document.getElementById('detail');
+          if (d) d.style.left = closed ? 'calc(var(--panel-gutter) + var(--panel-tab) + var(--panel-gutter))' : '';
+        }
         btn.setAttribute('aria-expanded', String(!closed));
         const title = closed ? `${name} 열기` : `${name} 접기`;
         btn.title = title;
@@ -493,7 +539,6 @@ export class UI {
   }
 
   setAdmin(on, cells = [], mode = 'cells') {
-    this.el.admin?.classList.toggle('on', on);
     if (!this.el.build) return;
     this.el.build.hidden = !on;
     if (!on) return;
@@ -536,7 +581,7 @@ export class UI {
       const u = units?.[c.id];
       const extra = u ? (u.role === 'source' ? `키트 ${state.plant.kits.length}` : `재고 ${u.stock}`) : (c.loaded ? '모델' : '—');
       const on = c.id === state.selected || c.id === parent;
-      const kids = (state.equip ?? []).filter((e) => e.cell === c.id).map((e) => partRow(state, e));
+      const kids = labelEquip(state.equip).filter((e) => e.cell === c.id).map((e) => partRow(state, e));
       return [`
       <li data-cell="${c.id}" class="cell ${on ? 'on' : ''}">
         <b>${c.id}</b><span>${c.label}</span><i class="st st-${c.state.toLowerCase()}">${c.state}</i><em>${extra}</em>
@@ -577,7 +622,11 @@ export class UI {
   setLabels(on) {
     if (!this.el.labels) return;
     this.el.labels.classList.toggle('on', !!on);
-    this.el.labels.title = on ? '머리 위 라벨 숨기기' : '머리 위 라벨 표시';
+    const title = on ? '라벨 숨기기' : '라벨 보이기';
+    this.el.labels.title = on ? '머리 위 라벨 숨기기' : '머리 위 라벨 보이기';
+    const b = this.el.labels.querySelector('.tx b');
+    if (b) b.textContent = title;
+    else this.el.labels.textContent = title;
   }
 }
 
@@ -714,13 +763,14 @@ function partRow(state, e) {
     busy = !!(ph && ph !== 'empty');
     label = ({ empty: '빈 리프트', rise: '올림', work: '작업 중', done: '반출 대기', lower: '내림' })[ph] ?? '리프트';
   } else if (e.kind === 'body') {
-    busy = !!cw?.op;
-    label = '몸통';
+    const list = Array.isArray(cw?.robots) ? cw.robots : Object.values(cw?.robots ?? {});
+    busy = !!(cw?.op || list.some((r) => r.op));
+    label = list[0]?.label ?? '양팔';
   }
   const st = down ? 'DOWN' : busy ? 'BUSY' : 'IDLE';
   return `
       <li data-equip="${e.id}" class="part ${e.id === state.followed ? 'on' : ''}">
-        <b>${e.name}</b><span>${label}</span><i class="st st-${st.toLowerCase()}">${st}</i>
+        <b>${e.kind === 'body' ? e.name.replace(/_robot$/i, '') : e.name}</b><span>${label}</span><i class="st st-${st.toLowerCase()}">${st}</i>
       </li>`;
 }
 

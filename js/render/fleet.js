@@ -3,6 +3,7 @@
 // 도어트림 플릿은 셀 GLB 의 메인 AMR(AMR_MAIN_JIG) 모델을 쓴다(setModel). 모델이 없으면 상자 차체 + 적재면까지 올린 상부 모듈.
 import * as THREE from 'three';
 import { RAIL, linkSegs, railPlan } from './rails.js';
+import { camLens } from './livecam.js';
 
 const BODY = Object.freeze({ l: 1.1, w: 0.78, h: 0.3, wheel: 0.1, clear: 0.06 });
 const LED = Object.freeze({ move: 0x4fb3ff, wait: 0xf5b74e, charge: 0x3ccf8e, low: 0xff5d5d, park: 0x6b7480 });
@@ -92,8 +93,10 @@ export class FleetView {
     sel.rotation.x = -Math.PI / 2;
     sel.position.y = 0.02;
     sel.visible = false;
-    g.add(body, deck, led, ledBack, lidar, ...wheels, ...extra, tote, sel);
-    return this.finish(a, g, { led: ledMat, wheels, tote, sel });
+    const cam = camLens();
+    cam.position.set(0, BODY.clear + BODY.h + 0.12, BODY.l / 2 - 0.04);
+    g.add(body, deck, led, ledBack, lidar, ...wheels, ...extra, tote, sel, cam);
+    return this.finish(a, g, { led: ledMat, wheels, tote, sel, cam });
   }
 
   // GLB 메인 AMR: 상태등 띠만 앞뒤 범퍼 위에 덧붙인다. 바퀴는 돌리지 않는다(가로 배율이 달라 돌리면 찌그러진다).
@@ -112,11 +115,13 @@ export class FleetView {
     sel.rotation.x = -Math.PI / 2;
     sel.position.y = 0.02;
     sel.visible = false;
-    g.add(body, led, ledBack, tote, sel);
-    return this.finish(a, g, { led: ledMat, wheels: [], tote, sel });
+    const cam = camLens();
+    cam.position.set(0, 0.72, (M.length ?? BODY.l) / 2 - 0.05);
+    g.add(body, led, ledBack, tote, sel, cam);
+    return this.finish(a, g, { led: ledMat, wheels: [], tote, sel, cam });
   }
 
-  finish(a, g, { led, wheels, tote, sel }) {
+  finish(a, g, { led, wheels, tote, sel, cam }) {
     g.traverse((o) => { if (o.isMesh && o !== sel) { o.castShadow = true; o.userData.amrId = a.id; } });
     this.root.add(g);
 
@@ -127,7 +132,7 @@ export class FleetView {
     line.frustumCulled = false;
     line.renderOrder = 3;
     this.root.add(line);
-    return { g, led, wheels, tote, sel, line, dist: a.dist };
+    return { g, led, wheels, tote, sel, cam, line, dist: a.dist };
   }
 
   update(dt, state, events) {
@@ -147,7 +152,7 @@ export class FleetView {
       const spin = (a.dist - it.dist) / BODY.wheel;
       it.dist = a.dist;
       for (const w of it.wheels) w.rotation.x += spin;
-      it.tote.visible = !!a.load && !a.load.e;   // 키트 엔티티가 있으면 그것을 그린다(parts.js)
+      it.tote.visible = !!a.load && !a.load.e && !a.load.totes?.length;  // 키트·PARTS 토트 엔티티는 parts.js
       const c = ledColor(a);
       it.led.emissive.setHex(c);
       it.led.emissiveIntensity = a.moving ? 1.8 : 1.0 + 0.6 * Math.sin(this.t * (a.charging ? 3 : 1.5) + a.idx);

@@ -46,6 +46,10 @@ export function stageOf(state, e) {
     const a = inboundAmr(P, e);
     return { key: 'store', label: '원재료 창고', visit: null, equip: a ? EQ('amr', a.id, a.id) : EQ('amr', 'AMR', '입고 AMR') };
   }
+  if (H.k === 'human') {
+    if (H.cell === 'STORE') return { key: 'store-load', label: '원재료 적재', visit: null, equip: EQ('site', 'STORE', '창고 휴머노이드') };
+    return { key: 'parts-load', label: '토트 적재', visit: null, equip: EQ('site', 'PARTS', '창고 휴머노이드') };
+  }
   if (H.k === 'move') return null;
   if (H.k === 'rack') return { key: 'sort-rack', label: 'SORT 대기', visit: P.route?.[0] ?? 'SORT', equip: EQ('cell', 'SORT', 'SORT 양팔') };
   if (H.k === 'pair') {
@@ -78,6 +82,8 @@ export function stageOf(state, e) {
 const BLURB = Object.freeze({
   depart: '창고로 이동',
   store: '선반에서 지그 대기',
+  'store-load': '휴머노이드가 AMR에 올림',
+  'parts-load': '휴머노이드가 토트 적재',
   inbound: 'SORT로 운반',
   'sort-in': '양팔이 랙에 올림',
   'sort-rack': '랙에서 분류 대기',
@@ -197,6 +203,7 @@ function holderText(h) {
     case 'rack': return `${h.cell} 랙 #${h.i}`;
     case 'pair': return `${h.cell} 양팔`;
     case 'store': return `창고 #${h.i}`;
+    case 'human': return `${h.cell} 휴머노이드`;
     case 'outg': return '적재 협동로봇';
     case 'outslot': return `책장 #${h.i}`;
     case 'move': return '옮김';

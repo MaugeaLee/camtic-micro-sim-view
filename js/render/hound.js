@@ -1,6 +1,7 @@
 // 견마 그리기. 참조 레포 사족 GLB(`quadruped.glb`)를 붙이고, 시뮬이 준 위치·heading·gait 로 대각 보행만 한다.
 // 관절 빈 객체 이름(Body · Hip_i · Knee_i · Cam)은 원 모델과 같다. 모델이 없으면 그리지 않는다(상자 대체 없음).
 import * as THREE from 'three';
+import { camLens } from './livecam.js';
 
 const AXIS = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
@@ -44,6 +45,7 @@ export class HoundView {
     this.legs = [];
     this.cam = null;
     this.camRest = null;
+    this.lens = null;
     this.mark = null;
     this.ready = false;
   }
@@ -73,6 +75,15 @@ export class HoundView {
     }));
     this.cam = model.getObjectByName('Cam');
     this.camRest = this.cam ? this.cam.quaternion.clone() : null;
+    this.lens = camLens({ scale: 0.7 });
+    this.lens.traverse((o) => { if (o.isMesh) o.userData.amrId = this.id; });
+    if (this.cam) {
+      this.cam.add(this.lens);
+      this.lens.position.set(0, 0.02, 0.08);
+    } else {
+      this.root.add(this.lens);
+      this.lens.position.set(0, 0.44, 0.30);
+    }
     this.ready = this.legs.every((L) => L.hip && L.knee);
     if (!this.mark) {
       const pad = new THREE.Mesh(

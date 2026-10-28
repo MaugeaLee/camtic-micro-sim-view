@@ -1,11 +1,11 @@
 // 조립 루트: 부트 · rAF 루프 · 모듈 배선. 모듈끼리는 서로 import 하지 않고 여기서만 잇는다.
 import * as THREE from 'three';
-import { MAX_STEP, NO_SERVER } from './core/env.js';
+import { MAX_STEP, NO_SERVER, bootClock } from './core/env.js';
 import { runtime, assetUrl, apiPath, processUrl } from './core/runtime.js';
 import { CELLS } from './sim/cells.js';
-import { FOOTPRINT, SITES, SITE_SPUR, canPlace, defaultLayout, extent, layoutStamp, normalizeLayout, partsLayout, placeItem, placeOf, poseOf, toLocal, translateSpur, moveSpurEnd, rotateSpur, validateLayout } from './sim/layout.js';
+import { FOOTPRINT, SITES, SITE_SPUR, canPlace, defaultLayout, extent, layoutStamp, normalizeLayout, partsLayout, placeItem, placeOf, poseOf, toLocal, toWorld, translateSpur, moveSpurEnd, rotateSpur, validateLayout } from './sim/layout.js';
 import { ViewerState } from './sim/state.js';
-import { findEquip } from './sim/equip.js';
+import { findEquip, labelEquip } from './sim/equip.js';
 import { AMR_MAX, DEFAULT_SCENARIO, SCENARIOS } from './sim/scenario.js';
 import { mapOf, routeGeo } from './sim/acs.js';
 import { AMR } from './sim/fleet.js';
@@ -15,6 +15,7 @@ import { DURATIONS, EVENTS, FAULT_WHY, FLEETS, FLEET_LABEL, FLEET_SPEEDS, SUPPLY
 import { DataHub } from './data/hub.js';
 import { clearLocal, dumpPlant, fingerprint, pickPlant, readLocal, restoreOk, restoreTime, validatePlant, writeLocal } from './data/plant.js';
 import { equipmentStatus } from './data/monitor.js';
+import { liveCamOf } from './sim/livecam.js';
 import { ProcessTrace } from './data/trace.js';
 import { createStage } from './render/stage.js';
 import { CellView } from './render/view.js';
@@ -23,6 +24,7 @@ import { CameraRig } from './render/camera.js';
 import { Picker } from './render/pick.js';
 import { CCTV, FIELD, MONITOR, validateMonitor } from './render/field-def.js';
 import { ControlMonitor } from './render/monitor.js';
+import { LiveCam } from './render/livecam.js';
 import { buildField } from './render/field.js';
 import { PlaceTool } from './render/place.js';
 import { RouteEditTool } from './render/route-edit.js';
@@ -31,6 +33,7 @@ import { PartsView } from './render/parts.js';
 import { OutSiteView } from './render/outsite.js';
 import { PartsSiteView } from './render/partsite.js';
 import { StoreSiteView } from './render/storesite.js';
+import { HumanoidView } from './render/humanoid.js';
 import { HoundView } from './render/hound.js';
 import { DroneView } from './render/drone.js';
 import { DRONE } from './sim/drone.js';
@@ -47,7 +50,7 @@ import { UI } from './ui/ui.js';
 const params = new URLSearchParams(location.search);
 const AUTOLOAD = params.get('assets') !== '0';
 const LAYOUT_POLL = 2000;
-// ?scenario=supply|faults|none · ?amr=1..AMR_MAX (기본: 시나리오 값) · ?play=1 자동 재생 · ?build=1|route Admin(셀 배치|AMR 경로)
+// ?scenario=supply|faults|none · ?amr=1..AMR_MAX (기본: 시나리오 값) · 부팅은 3배속 재생(?play=0 정지 · ?speed=1|3|10|30) · ?build=1|route Admin(셀 배치|AMR 경로)
 // ?process=0 셀 공정 정의 끔(예전 사이클 타이머만) · ?fresh=1 저장된 공장 상태를 읽지 않음
 const scenarioParam = params.get('scenario');
 let scenarioKey = scenarioParam === 'none' ? null : SCENARIOS[scenarioParam] ? scenarioParam : DEFAULT_SCENARIO;
@@ -81,6 +84,8 @@ const partsView = new PartsView(stage.scene);
 const outView = new OutSiteView(stage.scene);
 const depotView = new PartsSiteView(stage.scene, FOOTPRINT.PARTS);
 const storeView = new StoreSiteView(stage.scene, FOOTPRINT.STORE);
+const storeHumView = new HumanoidView(stage.scene, { id: 'STORE' });
+const partsHumView = new HumanoidView(stage.scene, { id: 'PARTS' });
 const houndView = new HoundView(stage.scene);
 const inspectView = new HoundView(stage.scene, { id: 'HOUND-02', scan: 0x3fd0e6 });
 const droneView = new DroneView(stage.scene, DRONE.pads);
@@ -109,7 +114,6 @@ const ui = new UI({
   onDownload: downloadLayout,
   onImport: importLayoutFile,
   onSave: saveLayout,
-  onAdmin: () => setAdmin(!admin),
   onBuildMode: (mode) => setBuildMode(mode),
   onDetailClose: () => { state.select(null); state.follow(null); },
   onTrace: () => toggleTrace(),
@@ -128,6 +132,8 @@ const ui = new UI({
 
 ui.setCatalog({ durations: DURATIONS, events: EVENTS, faultWhy: FAULT_WHY, fleets: FLEETS, fleetLabel: FLEET_LABEL, fleetSpeeds: FLEET_SPEEDS, supply: SUPPLY, supplyMode: SUPPLY_MODE });
 ui.setCctv(!!monitor);
+const live = params.get('livecam') === '0' ? null : new LiveCam(stage, document.getElementById('dtLive'));
+if (!live) ui.liveOff = true;
 
 // 하단 CCTV: 뒷벽 관제 모니터 켜기·끄기 · 카메라를 모니터 앞으로.
 function cctvAction(act) {
@@ -301,8 +307,7 @@ const partsOps = {
 };
 
 function start() {
-  const running = state?.running ?? params.get('play') === '1';
-  const speed = state?.speed ?? 1;
+  const clock = bootClock(params, { speed: state?.speed, running: state?.running });
   state = new ViewerState({ cells: CELLS, scenario: scenarioKey, layout, amr: amrCount, process: processDoc, drones: dronesCount, inspect: inspectOn });
   partsView.clear();
   equipView.clear();
@@ -336,12 +341,36 @@ function start() {
     if (errs.length) state.log('warn', '관제 모니터 정의 점검', { obs: errs.join(' · ') });
     else state.log('info', '관제 모니터', { obs: `뒷벽 화면 · 내부 CCTV ${CCTV.length}대(가상 카메라, 가정) · 녹화·감지 없음` });
   }
-  state.setSpeed(speed);
-  if (running) state.setRunning(true);
+  if (live) state.log('info', '온보드 캠', { obs: '로봇 손목 · AMR 전방 · 견마 헤드 · 드론 짐벌(가상 카메라, 가정) · 녹화·감지 없음' });
+  state.setSpeed(clock.speed);
+  if (clock.running) state.setRunning(true);
   ui.reset(state);
   ui.setDetail(null);
   ui.setAdmin(admin, state.cells, buildMode);
   if (admin) state.log('info', 'Admin 모드', { obs: buildHint() });
+  remountLive();
+}
+
+function remountLive() {
+  if (!live) return;
+  live.clearMounts();
+  for (const fv of [fleetView, partsFleetView]) {
+    for (const [id, it] of fv.items) if (it.cam) live.mount(id, it.cam);
+  }
+  if (houndView.lens) live.mount(houndView.id, houndView.lens);
+  if (inspectView.lens) live.mount(inspectView.id, inspectView.lens);
+  for (const [id, u] of droneView.units) if (u.cam) live.mount(id, u.cam);
+  for (const [id, cam] of equipView.cams) live.mount(id, cam);
+}
+
+function tickLive(dt) {
+  if (!live || admin) { live?.setPose(null); return; }
+  const id = ui.liveId();
+  const pose = id ? liveCamOf(state, id) : null;
+  live.setPose(pose);
+  ui.setLiveReady(!!pose);
+  if (id) remountLive();
+  live.update(dt);
 }
 
 // CCTV 는 셀·자리를 겨눈다 — 배치가 바뀌면 따라간다.
@@ -423,9 +452,11 @@ function bindRig(cell, obj) {
 }
 
 function drawWork(dt = 0) {
-  depotView.update(placeOf(layout, 'PARTS'));
-  storeView.update(state.plant?.store ? placeOf(layout, 'STORE') : null);
   const plant = state.plant;
+  depotView.update(placeOf(layout, 'PARTS'));
+  storeView.update(plant?.store ? placeOf(layout, 'STORE') : null);
+  storeHumView.update(plant?.store?.arm.view() ?? null, placeOf(layout, 'STORE'));
+  partsHumView.update(plant?.supply?.depot.view() ?? null, placeOf(layout, 'PARTS'));
   houndView.update(plant?.hound?.view() ?? null);
   inspectView.update(plant?.inspector?.view() ?? null);
   droneView.update(plant?.drones?.view().drones ?? null, dt);
@@ -472,7 +503,20 @@ function tagSpecs() {
     if (!cap) continue;
     out.push({ id, x: pose.x, y: id === 'OUT' ? 4.0 : 2.55, z: pose.z, ...cap, selected: false, scale: 3.2 });
   }
-  for (const e of state.equip ?? []) {
+  for (const id of ['STORE', 'PARTS']) {
+    const hum = plant?.siteWork?.(id);
+    const pose = placeOf(layout, id);
+    if (!hum || !pose) continue;
+    const v = hum.view();
+    const w = toWorld(pose, { x: v.x, z: v.z });
+    out.push({
+      id: v.id, x: w.x, y: (v.height ?? 1.65) + 0.35, z: w.z,
+      title: v.id, sub: v.label ?? '대기',
+      color: v.busy ? 0x3ccf8e : 0x9aa4b2,
+      selected: false, scale: 1.8,
+    });
+  }
+  for (const e of labelEquip(state.equip)) {
     const at = equipView.focusOf(e.id);
     if (!at) continue;
     const cap = equipTag(e, { cellState: state.cell(e.cell)?.state, work: plant?.work?.[e.cell] });
@@ -511,20 +555,21 @@ async function loadCellAssets() {
   await Promise.all([loadAssets(state.cells.map((c) => c.asset), { base: assetUrl() }), loadWorkModel(), loadHoundModel(), loadDroneModel()]);
   for (const c of state.cells) if (RENDER.loaded.has(c.asset)) mount(c);
   for (const [key, err] of RENDER.errors) state.log('warn', `에셋 로드 실패: ${key}`, { obs: err });
+  remountLive();
   refreshUi();
 }
 
 // 견마 사족 모델. 참조 레포 quadruped.glb. 없으면 그리지 않는다(상자 대체 없음).
 async function loadHoundModel() {
   const scene = await loadModel('quadruped', { base: assetUrl() });
-  if (scene) { houndView.useModel(scene); inspectView.useModel(scene); }
+  if (scene) { houndView.useModel(scene); inspectView.useModel(scene); remountLive(); }
   else state.log('warn', '견마 모델 없음', { obs: 'quadruped.glb 를 못 읽음' });
 }
 
 // 드론 모델. 참조 레포 drone.glb. 없으면 이착륙장만 그린다.
 async function loadDroneModel() {
   const scene = await loadModel('drone', { base: assetUrl() });
-  if (scene) droneView.useModel(scene);
+  if (scene) { droneView.useModel(scene); remountLive(); }
   else state.log('warn', '드론 모델 없음', { obs: 'drone.glb 를 못 읽음' });
 }
 
@@ -681,15 +726,19 @@ async function resetPlant() {
 }
 
 function applyPlant(doc) {
+  const play = bootClock(params);
   if (!doc || doc.t < MAX_STEP / 2 && !doc.running) {
-    if (doc) { state.setSpeed(doc.speed); if (params.get('play') === '1') state.setRunning(true); }
+    if (doc) {
+      state.setSpeed(play.speed);
+      if (play.running) state.setRunning(true);
+    }
     return false;
   }
   restoring = true;
   ui.setStatus('공장 상태 복원 중…');
   restoreTime(state, doc.t, doc.incidents);
-  state.setSpeed(doc.speed);
-  if (params.get('play') === '1' || doc.running) state.setRunning(true);
+  state.setSpeed(play.speed);
+  if (play.running) state.setRunning(true);
   else state.setRunning(false);
   restoring = false;
   const h = Math.floor(state.time / 3600), m = Math.floor((state.time % 3600) / 60), s = Math.floor(state.time % 60);
@@ -753,6 +802,8 @@ function previewPlace(doc) {
   else outView.update(null);
   depotView.update(placeOf(doc, 'PARTS'));
   storeView.update(plant?.store ? placeOf(doc, 'STORE') : null);
+  storeHumView.update(plant?.store?.arm.view() ?? null, placeOf(doc, 'STORE'));
+  partsHumView.update(plant?.supply?.depot.view() ?? null, placeOf(doc, 'PARTS'));
   if (!plant) {
     fleetView.showMap(routeOps.mapOf(doc));
     partsFleetView.showMap(doc.parts ? routeOps.mapOf(partsLayout(doc)) : null);
@@ -839,6 +890,7 @@ function frame() {
   for (const ev of events) focusSelection(ev);
   rig.update(rdt);
   monitor?.update(rdt, `CCTV  ${hms(state.time)}`);
+  tickLive(rdt);
   stage.render();
   const picked = events.some((ev) => ev.type === 'select' || ev.type === 'follow');
   if ((uiAcc += rdt) >= 0.25 || picked) { uiAcc = 0; refreshUi(); }
@@ -905,6 +957,7 @@ if (warp > 0 || focusId) {
   rig.update(2);
   monitor?.update(0, `CCTV  ${hms(state.time)}`);
   monitor?.refresh();
+  tickLive(0);
   refreshUi();
 } else if (trace.mode !== 'off') {
   refreshUi();
@@ -925,5 +978,6 @@ window.__viewer = {
   get state() { return state; }, get layout() { return layout; }, get admin() { return admin; },
   stage, field, view, fleetView, partsFleetView, rigView, liftView, equipView, tags, partsView, outView, depotView, storeView, houndView, inspectView, droneView, rig, hub, ui, get place() { return place; }, get routeTool() { return routeTool; }, RENDER, start, loadAssets: loadCellAssets, applyLayout, setAdmin, resetPlant, savePlant,
   status: (id) => equipmentStatus(state, id),
+  liveCam: (id) => liveCamOf(state, id),
   trace,
 };

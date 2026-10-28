@@ -1,5 +1,5 @@
 // 시나리오: 시뮬 시간축으로 셀 상태(IDLE/BUSY/DOWN)를 구동하고, 운반은 ACS(acs.js)에 미션으로 넘긴다. DOM·three 없음.
-// 흐름 가정: 부품 AMR이 원재료 창고(STORE)의 도어트림 키트를 SORT 랙 뒤(SORT:RAW)에 하역하면 협동로봇이 랙에 올리고, 분류된 키트를 북쪽 양팔 도크에서 AMR에 실어 SCREW·PRESS 로 나른다.
+// 흐름 가정: STORE·PARTS 휴머노이드가 선반 물건을 부품 AMR 위에 올린다. 부품 AMR이 원재료 창고(STORE)의 도어트림 키트를 SORT 랙 뒤(SORT:RAW)에 하역하면 협동로봇이 랙에 올리고, 분류된 키트를 북쪽 양팔 도크에서 AMR에 실어 SCREW·PRESS 로 나른다.
 // 사이클·재고·고장 시각은 모두 가정값이다. 실측·확정 공정이 아니다. 기본 시나리오에는 고장이 없다.
 // 공정 정의(process.default.json)를 주면 키트(지그 + 도어트림)·부품이 엔티티(소유자 하나)가 된다.
 // 공정 순서 route(SORT → SCREW → PRESS → SCREW → OUT): 양팔이 지그째 메인 AMR MAIN 패널에 올림 → 셀 리프트 자리에 서면 클립이 지그를
@@ -223,6 +223,12 @@ export class Plant {
 
   attachRig(id, rig) { return this.work[id]?.attachRig(rig) ?? null; }
 
+  siteWork(id) {
+    if (id === 'STORE') return this.store?.arm ?? null;
+    if (id === 'PARTS') return this.supply?.depot ?? null;
+    return null;
+  }
+
   step(h, host) {
     this.host = host;
     this.time = host.time;
@@ -237,7 +243,7 @@ export class Plant {
       else this.runSink(u, h);
     }
     this.work.OUT?.step(h);
-    this.store?.step();
+    this.store?.step(h);
     this.runTimed();
     this.dispatch();
     this.acs.step(h);
@@ -295,6 +301,10 @@ export class Plant {
       case 'rack': return this.worldOf(H.cell, [...this.ptArr(this.rack.pts[H.i]), this.work[H.cell]?.rackYaw?.() ?? 0]);
       case 'slot': return this.worldOf(H.cell, this.ptArr(this.slots[H.cell].pts[H.i]));
       case 'store': return this.worldOf(H.cell, this.store.pt(H.i));
+      case 'human': {
+        const p = this.siteWork(H.cell)?.local(e);
+        return p ? this.worldOf(H.cell, p) : null;
+      }
       case 'move': {
         const u = smooth(Math.min(1, Math.max(0, (this.time - H.t0) / H.dur)));
         const A = H.from, B = this.target(H.to) ?? H.from;
@@ -453,6 +463,7 @@ export class Plant {
       abort: (a) => {
         if (this.inM === m) this.inM = null;
         if (m.T && !m.T.released) m.T.cancel = true;
+        if (m.T) W?.arm.cancel(m.T);
         if (m.U?.started) return;
         if (m.U) m.U.cancel = true;
         const e = a?.load?.e ?? m.e;

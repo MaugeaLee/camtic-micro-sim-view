@@ -82,7 +82,7 @@ export class PartsView {
       j.name = 'jig';
       g.add(j);
     }
-    g.userData = { model: p.model ?? null, fit: !!tpl, box: !tpl, jig: !!p.jig };
+    g.userData = { model: p.model ?? null, fit: !!tpl, box: !tpl, jig: !!p.jig, color: p.color ?? null };
     return g;
   }
 
@@ -99,6 +99,10 @@ export class PartsView {
         m.name = `part-${p.id}`;
         this.root.add(m);
         this.items.set(p.id, m);
+      } else if (m.userData.box && p.color && m.userData.color !== p.color) {
+        const body = m.children.find((c) => c.isMesh && c.name !== 'jig');
+        if (body) body.material = this.mat(p.color);
+        m.userData.color = p.color;
       }
       const tilt = p.tilt ?? 0;
       const lift = Math.sin(tilt) * (p.size[0] / 2);

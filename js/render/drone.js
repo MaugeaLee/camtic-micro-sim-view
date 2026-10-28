@@ -1,6 +1,7 @@
 // 드론 그리기. 참조 레포 쿼드콥터 GLB(`drone.glb`)를 대수만큼 복제하고, 시뮬 위치·heading 에 로터 회전·기울기·짐벌만 얹는다.
 // 노드 이름(Rotor_i · Gimbal · Strobe)은 원 모델과 같다. 모델이 없으면 드론은 그리지 않고 이착륙장만 그린다.
 import * as THREE from 'three';
+import { camLens } from './livecam.js';
 
 const SKID = 0.23;   // 원점 → 스키드 바닥
 const COLOR = { inspect: 0x3fd0e6, count: 0xf2b84e, fault: 0xe24b4b };
@@ -46,6 +47,16 @@ export class DroneView {
       o.userData.amrId = id;
     });
     g.add(model);
+    const cam = camLens({ scale: 0.55 });
+    cam.traverse((o) => { if (o.isMesh) o.userData.amrId = id; });
+    const gimbal = model.getObjectByName('Gimbal');
+    if (gimbal) {
+      gimbal.add(cam);
+      cam.position.set(0, -0.04, 0.02);
+    } else {
+      g.add(cam);
+      cam.position.set(0, -0.08, 0.12);
+    }
     const cone = new THREE.Mesh(
       new THREE.ConeGeometry(1, 1, 24, 1, true),
       new THREE.MeshBasicMaterial({ color: COLOR.inspect, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false }),
@@ -53,9 +64,9 @@ export class DroneView {
     cone.visible = false;
     this.root.add(g, cone);
     const u = {
-      g, cone,
+      g, cone, cam,
       rotors: [0, 1, 2, 3].map((i) => model.getObjectByName(`Rotor_${i}`)).filter(Boolean),
-      gimbal: model.getObjectByName('Gimbal'),
+      gimbal,
       strobe: model.getObjectByName('Strobe'),
       spin: 0,
     };

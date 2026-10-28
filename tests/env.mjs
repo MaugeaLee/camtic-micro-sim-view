@@ -1,5 +1,6 @@
 // .env 파싱 · 환경변수가 파일보다 우선 · 공개 설정에 디스크 경로 없음.
 import { parseEnv, loadEnv, readConfig, mergeConfig, publicConfig, VERSION } from '../server/env.mjs';
+import { BOOT_SPEED, SPEEDS, bootClock } from '../js/core/env.js';
 import { runtime, assetUrl, apiPath, processUrl, staticAssetUrl, staticProcessUrl } from '../js/core/runtime.js';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -48,6 +49,13 @@ check('정적 에셋 URL은 src/render_asset', /\/src\/render_asset\/$/.test(sta
 check('정적 공정 JSON 파일', fs.existsSync(fileURLToPath(staticProcessUrl())));
 const pagesRt = { assetUrl: '/assets', api: { process: '/api/process' } };
 check('서버 주입이 정적 경로보다 우선', assetUrl(pagesRt) === '/assets/' && processUrl(pagesRt) === '/api/process');
+
+check('부팅 기본 = 3배속 재생', bootClock('').speed === BOOT_SPEED && bootClock('').running === true && BOOT_SPEED === 3);
+check('?play=0 이면 정지', bootClock('play=0').running === false && bootClock('play=0').speed === 3);
+check('?play=1 이면 재생', bootClock('play=1').running === true);
+check('?speed=10 은 그 배속', bootClock('speed=10').speed === 10 && bootClock('speed=7').speed === 3);
+check('이전 배속은 URL 없을 때 유지', bootClock('', { speed: 30, running: false }).speed === 30 && bootClock('', { speed: 30, running: false }).running === false);
+check('지원 배속 목록', SPEEDS.join() === '1,3,10,30');
 
 console.log(`  ${pass} pass, ${fail} fail`);
 process.exitCode = fail ? 1 : 0;

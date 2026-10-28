@@ -71,10 +71,12 @@ export function equipTag(e, { cellState, work } = {}) {
     const ph = work?.lift?.phase;
     busy = !!(ph && ph !== 'empty');
     label = LIFT[ph] ?? '리프트';
-  } else if (e.kind === 'body') {
-    busy = !!work?.op;
-    label = '몸통';
+  }   else if (e.kind === 'body') {
+    const list = Array.isArray(work?.robots) ? work.robots : Object.values(work?.robots ?? {});
+    busy = !!(work?.op || list.some((r) => r.op));
+    label = list[0]?.label ?? '양팔';
   }
   const color = down ? TAG_COLOR.down : busy ? TAG_COLOR.busy : TAG_COLOR.idle;
-  return { title: e.id, sub: clip(label), color };
+  const title = e.kind === 'body' ? `${e.cell}:${String(e.name).replace(/_robot$/i, '')}` : e.id;
+  return { title, sub: clip(label), color };
 }

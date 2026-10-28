@@ -1,5 +1,6 @@
 // 셀 공정 정의(src/process.default.json) 점검·정규화. DOM·three 없음.
 // 정의는 가정값이다: 셀 로컬 작업 지점(m)·공정 순서·시간(s)·부품 치수. 형상(GLB)에서 뽑을 수 있는 값(레일·관절·롤러 위치)은 여기 두지 않는다.
+import { validateHumanoid } from './humanoid.js';
 
 export const OPS = Object.freeze(['feed', 'path', 'dwell']);
 // 키트 모델 놓는 자세: upright = 에셋 그대로(세움), face-up = 앞면이 위로(지그에 눕힘)
@@ -46,6 +47,7 @@ export function validateProcess(doc, { cycle = null } = {}) {
       if (!Array.isArray(W.slots) || !W.slots.length || !W.slots.every(pt)) errors.push('SORT inbound.store.slots는 {x,y,z} 배열');
       if (!pt(W.receive)) errors.push('SORT inbound.store.receive는 {x,y,z}');
       if (!(W.restock > 0) || !(W.move > 0)) errors.push('SORT inbound.store restock·move는 양수');
+      errors.push(...validateHumanoid(W.humanoid, 'inbound.store'));
     }
     const L = S.load;
     if (L) {
@@ -78,9 +80,19 @@ export function validateProcess(doc, { cycle = null } = {}) {
     if (!Number.isInteger(U.reorder) || U.reorder < 0 || U.reorder >= U.qty) errors.push('supply.reorder는 0 이상 qty 미만 정수');
     if (!(U.load > 0) || !(U.unload > 0)) errors.push('supply load·unload는 양수');
     if (!size3(U.tote?.size)) errors.push('supply.tote.size는 양수 3개');
+    if (U.tote?.colors != null) {
+      if (typeof U.tote.colors !== 'object' || Array.isArray(U.tote.colors)) errors.push('supply.tote.colors는 부품→색 객체');
+      else for (const [k, v] of Object.entries(U.tote.colors)) {
+        if (typeof v !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(v)) errors.push(`supply.tote.colors.${k}는 #RRGGBB`);
+      }
+    }
     if (!pt(U.shelf)) errors.push('supply.shelf는 {x,y,z}');
     if (!Number.isInteger(U.batch) || U.batch < 1 || U.batch > 4) errors.push('supply.batch는 1~4 정수(AMR 적재면 2×2칸)');
     if (!(U.top > 0)) errors.push('supply.top(부품 AMR 적재면 높이)은 양수');
+    if (U.bins != null) {
+      if (!Array.isArray(U.bins) || !U.bins.length || U.bins.length > 4 || !U.bins.every(pt)) errors.push('supply.bins는 {x,y,z} 1~4개');
+    }
+    errors.push(...validateHumanoid(U.humanoid, 'supply'));
   }
   // 흐름 없는 셀: 지그 자리 옮김만
   for (const [id, C] of Object.entries(cells)) {
@@ -114,6 +126,25 @@ function validateRoute(doc) {
 // 완료품 적재 구역 정의 + 공통 키트·지그·적재면.
 export const outDef = (doc) => (doc?.cells?.OUT ? { ...doc.cells.OUT, kit: doc.kit, jig: doc.jig ?? null, deck: doc.deck } : null);
 export const supplyDef = (doc) => (doc?.supply ? { ...doc.supply, deck: doc.deck } : null);
+
+const TOTE_FALLBACK = '#2f7dd1';
+
+// 창고·AMR 위 토트 상자 색(가정). 부품(라인 역할)마다 다르고, 없으면 SORT 레인 색 · 기본 파랑.
+export function toteColor(doc, { part, dock } = {}) {
+  const tote = doc?.supply?.tote ?? {};
+  if (part && typeof tote.colors?.[part] === 'string') return tote.colors[part];
+  if (part) {
+    for (const C of Object.values(doc?.cells ?? {})) {
+      const c = C?.parts?.[part]?.color;
+      if (typeof c === 'string') return c;
+    }
+  }
+  if (dock) {
+    const lane = doc?.cells?.SORT?.feed?.lanes?.find((l) => l.to?.includes(dock));
+    if (typeof lane?.color === 'string') return lane.color;
+  }
+  return tote.color ?? TOTE_FALLBACK;
+}
 
 // SORT 부속 부품 분류(가정): 투입 이송기 → 컨베이어(바코드 스캔) → 레인 분기 → 레인 롤러 → 내림 이송기. 레인마다 목적 도크(셀:라인).
 function validateFeed(F) {
