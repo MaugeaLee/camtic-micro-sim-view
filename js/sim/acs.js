@@ -25,7 +25,7 @@ export function mapOf(geo) {
   return {
     rev: geo.geoRev ?? 0,
     nodes: [...graph.nodes.values()].map(({ id, x, z }) => ({ id, x, z })),
-    edges: graph.edges.map((e) => ({ a: e.a, b: e.b, pa: e.pa, pb: e.pb, oneway: !!e.oneway, bad: badEdges.has(e.i) })),
+    edges: graph.edges.map((e) => ({ a: e.a, b: e.b, pa: e.pa, pb: e.pb, oneway: !!e.oneway, center: !!e.center, bad: badEdges.has(e.i) })),
     cells: Object.values(geo.cells).map((c) => ({ ...c, bad: badCells.has(c.id), links: [link(c.entry), link(c.exit)].filter(Boolean) })),
     homes: geo.homes.map((h) => ({ x: h.x, z: h.z, heading: h.heading, link: link(h) })),
     zones: geo.zones.map(({ x, z, r }) => ({ x, z, r })),

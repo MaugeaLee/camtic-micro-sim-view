@@ -24,6 +24,7 @@ export function buildOpenApi(cfg) {
       { name: 'assets', description: '렌더 에셋 조회' },
       { name: 'docs', description: '이 스펙과 Swagger UI' },
       { name: 'layout', description: '셀 자리 JSON. GET은 공개, PUT은 127.0.0.1만' },
+      { name: 'chapterB', description: '장 B 구독: micro-assembly MQTT·FAC를 읽기만 한다. 발행 없음' },
     ],
     paths: {
       [api.status]: {
@@ -140,6 +141,53 @@ export function buildOpenApi(cfg) {
           operationId: 'getOpenApi',
           responses: {
             200: jsonRes({ type: 'object', additionalProperties: true }, '이 문서'),
+          },
+        },
+      },
+      [api.bStatus]: {
+        get: {
+          tags: ['chapterB'],
+          summary: '장 B 구독 상태: 브로커 연결·받은 건수. 첫 호출 때 구독을 시작한다',
+          operationId: 'getChapterBStatus',
+          responses: {
+            200: jsonRes({ type: 'object', properties: { mqtt: { type: 'object' }, fac: { type: 'string' }, demo: { type: 'boolean' }, clients: { type: 'integer' }, counts: { type: 'object' }, assets: { type: 'integer' }, topics: { type: 'integer' }, lagSkips: { type: 'integer' }, resyncs: { type: 'integer' } } }, '구독 상태'),
+          },
+        },
+      },
+      [api.bInspect]: {
+        get: {
+          tags: ['chapterB'],
+          summary: '수신 점검: 토픽별 건수·속도·크기·seq 누락·해석 오류 + 최근 원문 50건(원문 4 KB에서 자름)과 푼 항목',
+          operationId: 'getChapterBInspect',
+          responses: {
+            200: jsonRes({ type: 'object', properties: { n: { type: 'integer' }, overflow: { type: 'integer' }, topics: { type: 'array', items: { type: 'object' } }, ring: { type: 'array', items: { type: 'object' } }, counts: { type: 'object' }, demo: { type: 'boolean' } } }, '수신 점검'),
+          },
+        },
+      },
+      [api.bStream]: {
+        get: {
+          tags: ['chapterB'],
+          summary: 'SSE. snapshot 1회 뒤 batch(0.5초 묶음, 같은 자산 값은 한 건으로 합침)·mqtt(연결 상태). 느린 클라이언트는 건너뛰었다가 snapshot 으로 다시 맞춤',
+          operationId: 'streamChapterB',
+          responses: { 200: { description: 'text/event-stream', content: { 'text/event-stream': { schema: { type: 'string' } } } } },
+        },
+      },
+      [`${api.bFac}/{view}`]: {
+        get: {
+          tags: ['chapterB'],
+          summary: 'FAC API 조회 대리(GET만). 업스트림은 서버 설정 B_FAC_URL',
+          operationId: 'getChapterBFac',
+          parameters: [
+            { name: 'view', in: 'path', required: true, schema: { type: 'string', enum: ['status', 'events', 'po', 'moves', 'stock', 'mr', 'equipment', 'orderpoints', 'master'] } },
+            { name: 'since', in: 'query', schema: { type: 'integer' } },
+            { name: 'limit', in: 'query', schema: { type: 'integer' } },
+            { name: 'type', in: 'query', schema: { type: 'string' } },
+          ],
+          responses: {
+            200: jsonRes({ type: 'object', additionalProperties: true }, 'FAC 응답 그대로'),
+            404: jsonRes(schemaRef('Error'), '없는 조회'),
+            502: jsonRes(schemaRef('Error'), '업스트림 응답 없음'),
+            503: jsonRes(schemaRef('Error'), '업스트림에 스냅샷 없음'),
           },
         },
       },

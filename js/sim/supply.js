@@ -5,6 +5,7 @@
 //      미리 와서 기다리다 내림 이송기가 내려 준 토트를 받아 그 라인 적재 팔레트 도크로 가 상자를 덤프한다.
 //      셀 직교이송이 상자를 롤러에 올리고, 롤러가 당기면 협동로봇이 상자에서 부품을 집는다(토트는 비울 때까지 유지).
 // SORT 레인은 도어트림 AMR 이 듀얼암 적재 자리로 지나가는 한 줄 통로와 같다(같은 칸·같은 잠금, acs.js shareCross).
+// 같은 ACS 가 도어트림 원재료 입고(원재료 창고 STORE → SORT:RAW, scenario.js inMission)도 받는다 — 두 창고가 남쪽 창고 줄에 붙어 있다.
 // 수량·시간·창고 자리·분류 규칙 모두 가정이다. DOM·three 없음.
 import { Acs } from './acs.js';
 import { partsLayout, toLocal } from './layout.js';

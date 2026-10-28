@@ -1,5 +1,5 @@
 // 부품·키트 엔티티 등록부. 엔티티마다 소유자(holder)는 정확히 하나다. 옮김은 hold(e, 새 소유자, 예상 소유자)로만 한다. DOM·three 없음.
-// holder 종류(k): amr{id} · rack{cell,i} · slot{cell,i} · station{cell,st} · robot{cell,r} · gantry{cell,line} · line{cell,line,s}
+// holder 종류(k): amr{id} · rack{cell,i} · slot{cell,i} · store{cell,i}(원재료 창고 선반) · station{cell,st} · robot{cell,r} · gantry{cell,line} · line{cell,line,s}
 //   · stock{cell,line} · kit{kit,at:[dx,dz]} · tote{tote,at?}(상자 안 부품) · move{from,to,t0,dur,arc}(두 자리 사이 옮김 — 몸체 없는 이송)
 //   · amr{id,at:[dx,dz,dy]}(한 AMR 여러 칸) · xfer{cell,t}(이송기) · belt{cell,line}(컨베이어·레인 롤러 위, 여럿)
 //   · lift{cell}(셀 작업대 리프트가 든 지그+도어트림)
@@ -10,7 +10,7 @@ export function holderKey(h) {
   switch (h?.k) {
     case 'amr': return h.at ? `amr:${h.id}:${h.at.join(',')}` : `amr:${h.id}`;
     case 'xfer': return `xfer:${h.cell}:${h.t}`;
-    case 'rack': case 'slot': return `${h.k}:${h.cell}:${h.i}`;
+    case 'rack': case 'slot': case 'store': return `${h.k}:${h.cell}:${h.i}`;
     case 'station': return `station:${h.cell}:${h.st}`;
     case 'lift': return `lift:${h.cell}`;
     case 'robot': return `robot:${h.cell}:${h.r}`;

@@ -2,7 +2,8 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { ROOT, mergeConfig, publicConfig, resolveAssetDir } from './env.mjs';
+import { DASHBOARD, ROOT, mergeConfig, publicConfig, resolveAssetDir } from './env.mjs';
+import { ChapterB, readBConfig } from './chapter-b.mjs';
 import { catalog, wantsHtml } from './asset-viewer.mjs';
 import { buildOpenApi } from './openapi.mjs';
 import { loadLayout, saveLayout } from './layout.mjs';
@@ -62,7 +63,8 @@ function sendHtml(res, file, cfg) {
 
 export function createHandler(cfg) {
   const assetDir = resolveAssetDir(cfg);
-  return (req, res) => {
+  const chapterB = new ChapterB(cfg.b ?? readBConfig());
+  const handler = (req, res) => {
     const url = new URL(req.url, `http://${cfg.host}`);
     let p;
     try { p = decodeURIComponent(url.pathname); } catch { return json(res, 400, { error: 'bad path' }); }
@@ -70,6 +72,12 @@ export function createHandler(cfg) {
     if (isApi(p, cfg)) {
       if (p === cfg.api.layout) return layoutApi(req, res, url, cfg);
       if (req.method !== 'GET') return json(res, 405, { error: 'method not allowed' });
+      if (p === cfg.api.bStream) return chapterB.stream(req, res);
+      if (p === cfg.api.bStatus) { chapterB.ensure(); return json(res, 200, chapterB.status()); }
+      if (p === cfg.api.bInspect) return json(res, 200, chapterB.inspect());
+      if (p.startsWith(`${cfg.api.bFac}/`)) {
+        return chapterB.fac(p.slice(cfg.api.bFac.length + 1), url).then(({ code, body }) => json(res, code, body));
+      }
       if (p === cfg.api.status) {
         return json(res, 200, { name: cfg.name, time: new Date().toISOString(), assets: listAssets(assetDir).map((a) => a.key), env: publicConfig(cfg) });
       }
@@ -91,6 +99,7 @@ export function createHandler(cfg) {
       return json(res, 404, { error: 'not found' });
     }
 
+    if (p === DASHBOARD || p === `${DASHBOARD}.html`) return sendHtml(res, path.join(ROOT, 'dashboard.html'), cfg);
     const file = resolvePublic(p, cfg);
     if (!file || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
       res.writeHead(404); return res.end('not found');
@@ -99,6 +108,8 @@ export function createHandler(cfg) {
     res.writeHead(200, { 'content-type': MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream' });
     fs.createReadStream(file).pipe(res);
   };
+  handler.chapterB = chapterB;
+  return handler;
 }
 
 function isLoopback(req) {
@@ -150,7 +161,10 @@ async function layoutApi(req, res, url, cfg) {
 
 export function startServer(overrides = {}) {
   const cfg = mergeConfig(overrides);
-  const server = http.createServer(createHandler(cfg));
+  const handler = createHandler(cfg);
+  const server = http.createServer(handler);
+  const close = server.close.bind(server);
+  server.close = (cb) => { handler.chapterB.close(); return close(cb); };
   return new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(cfg.port, cfg.host, () => {

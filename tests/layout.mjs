@@ -3,7 +3,7 @@ import { CELLS } from '../js/sim/cells.js';
 import { FIELD } from '../js/render/field-def.js';
 import {
   DEFAULT_POSES, FIELD_SIZE, FOOTPRINT, LAYOUT_VERSION, SNAP, canPlace, defaultLayout, layoutStamp, moveCell,
-  moveItem, moveSpurEnd, normalizeLayout, placeItem, poseOf, rotateSpur, snapCoord, snapRot, toLocal, toWorld, translateSpur, validateLayout,
+  moveItem, moveSpurEnd, normalizeLayout, overlaps, placeItem, poseOf, rotateSpur, snapCoord, snapRot, toLocal, toWorld, translateSpur, validateLayout,
 } from '../js/sim/layout.js';
 
 let pass = 0, fail = 0;
@@ -93,18 +93,26 @@ check('스탬프에 AMR 경로 포함', layoutStamp(base) !== layoutStamp({ ...b
 
 // 부속 부품 AMR 루트(parts): 도어트림 루트(amr)와 따로. 창고 PARTS 자리 · 라인 도크 「셀:라인」(셀 로컬).
 {
-  check('기본: 부품 창고 자리 · 부품 루트 · 충전 자리 3 · 도크 8 + 창고 + SORT 투입', !!base.sites.PARTS && base.parts.homes.length === 3
-    && Object.keys(base.parts.cells).length === 10 && !!base.parts.cells['PRESS:L01'] && !!base.parts.cells.PARTS
+  check('기본: 부품 창고 자리 · 부품 루트 · 충전 자리 6 · 도크 8 + 창고 2(부품·원재료) + SORT 투입 + SORT 뒤쪽 원재료 하역', !!base.sites.PARTS && base.parts.homes.length === 6
+    && Object.keys(base.parts.cells).length === 12 && !!base.parts.cells.STORE && base.parts.cells['SORT:RAW']?.exit === null && !!base.parts.cells['PRESS:L01'] && !!base.parts.cells.PARTS
     && base.parts.cells['SORT:IN']?.exit === null && base.parts.cells['SORT:IN'].stops.length === 1);
   check('SORT 도어트림 정지점 7: 대기 2 · 레인 A–D · 듀얼', base.amr.cells.SORT.stops.length === 7);
-  check('도어트림 루트에는 부품 도크가 없다 · PRESS·SCREW 는 통과 리프트 셀(따로 반출 도크 없음) · SORT 뒤쪽 입고는 있음',
-    !Object.keys(base.amr.cells).some((id) => id === 'PARTS' || id === 'SORT:IN' || id.includes(':L'))
-    && !base.amr.cells['PRESS:OUT'] && !base.amr.cells['SCREW:OUT'] && !!base.amr.cells['SORT:RAW']
+  check('도어트림 루트에는 부품·창고 도크가 없다 · PRESS·SCREW 는 통과 리프트 셀(따로 반출 도크 없음) · SORT 뒤쪽 입고는 부품 루트로 옮김',
+    !Object.keys(base.amr.cells).some((id) => id === 'PARTS' || id === 'STORE' || id === 'SORT:IN' || id === 'SORT:RAW' || id.includes(':L'))
+    && !base.amr.cells['PRESS:OUT'] && !base.amr.cells['SCREW:OUT'] && !base.amr.route.nodes.some((n) => /^R\d/.test(n.id))
     && ['PRESS', 'SCREW'].every((id) => base.amr.cells[id].stops.length === 1 && !!base.amr.cells[id].exit));
   const old = JSON.parse(JSON.stringify(base));
   delete old.parts; delete old.sites.PARTS;
   const n = normalizeLayout(old);
   check('parts 없는 예전 파일도 통과 · 기본 부품 루트·창고 붙음', validateLayout(old).length === 0 && JSON.stringify(n.parts) === JSON.stringify(base.parts) && !!n.sites.PARTS);
+  const noStore = JSON.parse(JSON.stringify(base));
+  delete noStore.sites.STORE; delete noStore.parts.cells.STORE;
+  const ns = normalizeLayout(noStore);
+  const S = base.sites.STORE, cellsOk = ['SORT', 'PRESS', 'SCREW'].every((c) => !overlaps('STORE', S, c, base.cells[c]))
+    && ['OUT', 'PARTS'].every((c) => !overlaps('STORE', S, c, base.sites[c]));
+  const Pw = base.sites.PARTS, touch = Math.abs((S.x - FOOTPRINT.STORE.w / 2) - (Pw.x + FOOTPRINT.PARTS.w / 2)) < 1e-9 && S.z === Pw.z;
+  check('원재료 창고 STORE: 부품 창고 동쪽에 붙음(같은 줄 · 틈 0) · 셀·자리와 안 겹침 · 부품 루트 도크 · 예전 파일에도 붙음', !!S && touch && cellsOk && !!base.parts.cells.STORE
+    && validateLayout(noStore).length === 0 && ns.sites.STORE?.x === S.x && !!ns.parts.cells.STORE, JSON.stringify(S));
   const bad = structuredClone(base);
   bad.parts.route.edges.push({ a: 'Q0', b: 'NOPE' });
   check('부품 루트 오류는 「부품 AMR」 머리로', validateLayout(bad).some((e) => e.startsWith('부품 AMR') && e.includes('NOPE')), validateLayout(bad).join(' · '));
@@ -118,9 +126,9 @@ check('스탬프에 AMR 경로 포함', layoutStamp(base) !== layoutStamp({ ...b
   check('라인 도크 x = 공정 정의 라인 x · 적재 팔레트 쪽(남·북)', off.length === 0, off.join(','));
   const P = base.sites.PARTS, hw = FOOTPRINT.PARTS.w / 2;
   const sub = base.parts.homes, west = sub.filter((h) => h.x < P.x - hw), east = sub.filter((h) => h.x > P.x + hw);
-  check('부품 충전 자리는 창고 좌우(서 2 · 동 1 · 도크 앞 아님) · 도어트림은 북쪽 통로 한 줄 6',
+  check('부품 충전 자리는 창고 좌우(서 2 · 동 4 · 도크 앞 아님) · 도어트림은 북쪽 통로 한 줄 6',
     base.amr.homes.length === 6 && base.amr.homes.every((h, i) => h.z === 9.6 && (!i || Math.abs(h.x - base.amr.homes[i - 1].x + 1.4) < 1e-6))
-    && west.length === 2 && east.length === 1 && west.concat(east).every((h) => h.z === -13.4)
+    && west.length === 2 && east.length === 4 && west.concat(east).every((h) => h.z === -13.4)
     && !sub.some((h) => Math.abs(h.x - P.x) < 2),
     JSON.stringify({ trim: base.amr.homes, sub, P }));
 }

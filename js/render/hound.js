@@ -17,12 +17,27 @@ function poseJoint(node, q) {
   node.quaternion.setFromAxisAngle(AXIS.fromArray(axis), THREE.MathUtils.clamp(q, lo, hi));
 }
 
+// id: 시뮬 견마 id. scan: 스캔 중 표시 색(점검 견마). 리커버리 견마는 빨간 링(밀기·출동).
 export class HoundView {
-  constructor(scene) {
+  constructor(scene, { id = 'HOUND-01', scan = null } = {}) {
+    this.id = id;
+    this.scanColor = scan;
     this.root = new THREE.Group();
-    this.root.name = 'hound';
+    this.root.name = id.toLowerCase();
     this.root.visible = false;
     scene.add(this.root);
+    this.station = null;
+    if (scan != null) {
+      this.station = new THREE.Mesh(
+        new THREE.RingGeometry(0.62, 0.7, 4, 1, Math.PI / 4),
+        new THREE.MeshBasicMaterial({ color: scan, transparent: true, opacity: 0.7, side: THREE.DoubleSide }),
+      );
+      this.station.rotation.x = -Math.PI / 2;
+      this.station.position.y = 0.015;
+      this.station.visible = false;
+      this.station.name = `${this.root.name}-station`;
+      scene.add(this.station);
+    }
     this.model = null;
     this.body = null;
     this.bodyRest = 0;
@@ -42,7 +57,11 @@ export class HoundView {
       if (!o.isMesh) return;
       o.castShadow = true;
       o.receiveShadow = true;
-      o.userData.amrId = 'HOUND-01';
+      o.userData.amrId = this.id;
+      if (this.scanColor != null && o.material?.color) {
+        o.material = o.material.clone();
+        o.material.color.lerp(new THREE.Color(this.scanColor), 0.35);
+      }
     });
     this.model = model;
     this.root.add(model);
@@ -58,7 +77,7 @@ export class HoundView {
     if (!this.mark) {
       const pad = new THREE.Mesh(
         new THREE.RingGeometry(0.55, 0.75, 24),
-        new THREE.MeshBasicMaterial({ color: 0xe24b4b, transparent: true, opacity: 0.85, side: THREE.DoubleSide }),
+        new THREE.MeshBasicMaterial({ color: this.scanColor ?? 0xe24b4b, transparent: true, opacity: 0.85, side: THREE.DoubleSide }),
       );
       pad.rotation.x = -Math.PI / 2;
       pad.position.y = 0.02;
@@ -69,7 +88,7 @@ export class HoundView {
   }
 
   focusOf(id, view) {
-    if (id !== 'HOUND-01' || !view) return null;
+    if (id !== this.id || !view) return null;
     return { center: new THREE.Vector3(view.x, 0.4, view.z), size: 3.2 };
   }
 
@@ -81,6 +100,10 @@ export class HoundView {
 
   // view: Hound.view() 또는 null
   update(view) {
+    if (this.station) {
+      this.station.visible = !!view?.home;
+      if (view?.home) this.station.position.set(view.home.x, 0.015, view.home.z);
+    }
     if (!view || !this.ready) { this.root.visible = false; return; }
     this.root.visible = true;
     this.root.position.set(view.x, 0, view.z);
@@ -94,10 +117,13 @@ export class HoundView {
     });
     if (this.body) this.body.position.y = this.bodyRest + (walk ? Math.abs(Math.sin(t * 10)) * 0.025 : 0);
     if (this.cam) {
-      const sweep = (view.mode === 'goto' || view.mode === 'nudge') ? Math.sin(t * 2.5) * 0.4 : 0;
+      const sweep = (view.mode === 'goto' || view.mode === 'nudge' || view.scanning) ? Math.sin(t * 2.5) * 0.4 : 0;
       if (this.camRest) this.cam.quaternion.setFromAxisAngle(UP, sweep).multiply(this.camRest);
       else this.cam.rotation.y = sweep;
     }
-    if (this.mark) this.mark.visible = view.mode === 'nudge' || view.mode === 'goto';
+    if (this.mark) {
+      this.mark.visible = this.scanColor != null ? !!view.scanning : view.mode === 'nudge' || view.mode === 'goto';
+      if (this.mark.visible) this.mark.material.opacity = 0.5 + 0.35 * Math.abs(Math.sin(t * 3));
+    }
   }
 }

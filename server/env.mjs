@@ -55,7 +55,13 @@ export const API = Object.freeze({
   openapi: '/api/openapi.json',
   layout: '/api/layout',
   process: '/api/process',
+  bStatus: '/api/b/status',
+  bStream: '/api/b/stream',
+  bInspect: '/api/b/inspect',
+  bFac: '/api/b/fac',
 });
+
+export const DASHBOARD = '/dashboard';
 
 // 호스트·포트·에셋만 env. API 경로는 위 상수. 배포 값은 파일·환경변수가 우선.
 export function readConfig(env = process.env) {

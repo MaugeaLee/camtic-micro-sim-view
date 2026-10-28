@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>장 B 구독 — Micro-Cell Viewer</title>
+<link rel="stylesheet" href="css/dash.css">
+<script>/*__ENV__*/</script>
+</head>
+<body>
+<header class="dtop">
+  <div class="dbrand">장 B 구독 <small>MQTT · FAC 조회</small></div>
+  <div class="dbadges">
+    <span class="badge demo" id="demoBadge" hidden title="npm run demo: 이 뷰어 시뮬 값을 서버 안 브로커로 내보낸 데모 소스">데모 소스</span>
+    <span class="badge" id="mqttBadge" title="">MQTT —</span>
+    <span class="badge" id="facBadge" title="">FAC —</span>
+    <a class="dlink" href="/">3D 뷰어</a>
+  </div>
+</header>
+<p class="dnote" id="note">micro-assembly 시뮬이 내보낸 값을 구독만 한다. 현장 실측이 아니고, 이 화면은 발행·명령을 보내지 않는다.</p>
+
+<main class="dgrid" id="dash">
+  <details class="dcard full insp" id="inspCard" open>
+    <summary><h2>수신 점검 <span class="muted" id="inspSum"></span></h2></summary>
+    <p class="muted small">받은 원문과 푼 값, 화면 표에 들어간 값을 나란히 본다. 서버가 들고 있는 최근 50건(원문 4 KB까지)만 1초마다 가져온다 — 접으면 안 가져온다.</p>
+    <div class="split three">
+      <div class="scroll"><table class="tbl" id="topicTbl">
+        <thead><tr><th>토픽</th><th>건수</th><th>/s</th><th>크기</th><th>seq 누락</th><th>오류</th><th>마지막</th></tr></thead><tbody></tbody>
+      </table></div>
+      <div class="scroll"><ul class="feed raw" id="rawList"></ul></div>
+      <div class="scroll">
+        <p class="muted" id="rawHint">가운데 최근 메시지를 고르면 원문·푼 값·화면 반영이 나온다.</p>
+        <div id="rawPane" hidden>
+          <h3>화면 반영</h3><ul class="cmp" id="cmpList"></ul>
+          <h3>원문</h3><pre class="code" id="rawText"></pre>
+          <h3>푼 항목</h3><pre class="code" id="decText"></pre>
+        </div>
+      </div>
+    </div>
+  </details>
+  <section class="dcard span2">
+    <h2>자산 <span class="muted" id="assetCount"></span></h2>
+    <div class="split">
+      <div class="scroll"><table class="tbl" id="assetTbl">
+        <thead><tr><th>DataSetWriter</th><th>설명</th><th>필드</th><th>Seq</th><th>시각</th></tr></thead><tbody></tbody>
+      </table></div>
+      <div class="scroll"><table class="tbl" id="fieldTbl">
+        <thead><tr><th>필드</th><th>값</th><th>단위</th><th>시각</th></tr></thead><tbody></tbody>
+      </table><p class="muted" id="fieldHint">왼쪽 자산을 고르면 필드 값이 나온다.</p></div>
+    </div>
+  </section>
+
+  <section class="dcard">
+    <h2>FAC <span class="muted" id="facRun"></span></h2>
+    <div class="stats" id="facStats"></div>
+    <h3>로케이션별 재고</h3>
+    <div class="scroll short"><table class="tbl" id="stockTbl"><thead></thead><tbody></tbody></table></div>
+  </section>
+
+  <section class="dcard">
+    <h2>이벤트 <span class="muted" id="evCount"></span></h2>
+    <div class="seg" id="evFilter"></div>
+    <ul class="feed" id="evList"></ul>
+  </section>
+
+  <section class="dcard">
+    <h2>명령 <span class="muted" id="cmdCount"></span></h2>
+    <div class="scroll"><table class="tbl" id="cmdTbl">
+      <thead><tr><th>시각</th><th>명령</th><th>대상</th><th>상태</th><th>발행자</th></tr></thead><tbody></tbody>
+    </table></div>
+  </section>
+
+  <section class="dcard">
+    <h2>FAC 이벤트 <span class="muted" id="facEvCount"></span></h2>
+    <ul class="feed" id="facEvList"></ul>
+  </section>
+</main>
+
+<footer class="dfoot"><span id="footLine">연결 중…</span></footer>
+<script type="module" src="js/dash/main.js"></script>
+</body>
+</html>

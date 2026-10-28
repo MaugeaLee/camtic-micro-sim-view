@@ -9,7 +9,7 @@
 | A. 목표 OCS (실증 존) | 설계 추정. Sparkplug·Machbase·Airflow 미구현 | `../context/02-architecture.md` |
 | B. Jin-micro 시뮬 | 동작 중. 브라우저가 공장 | `02`–`07` |
 | C. CAMTIC 현장 수집 | 동작 중. ZMQ → 세션 OPC UA | `08` |
-| 조인 | 미구축 | `09` |
+| 조인 | 브리지 있음(V3-3, DTO 가정). 장 C 연결 미확인 | `09` |
 
 ---
 
@@ -40,7 +40,7 @@
   aas-backend-viewer :8000     ← 트리만. 라이브 값 없음
   (camtic-aas-web-viewer = 빈 폴더)
 
-  MQTT ──X── ZMQ   브리지 없음
+  MQTT ──bridge.mjs──► ZMQ PUB collector.sim.*   (V3-3, DTO 가정 · edge_forwarder 수신 미확인)
 ```
 
 이 레포(`camtic-micro-sim-view`)는 산정(`context/`) + 스펙(`docx/`) 작업 공간이고, 셀 GLB 렌더 뷰어 골격(`10-viewer.md`)이 하나 있다. 뷰어는 시뮬 런타임이 아니며 위 어느 장에도 아직 붙지 않았다.
@@ -179,8 +179,8 @@ AAS viewer는 이 파이프에 없다. 파일을 읽어 NodeSet **파일**을 �
 
 렌더 뷰어(`10-viewer.md`)는 셀 GLB 표시용 골격이다. 여기에 기능을 붙일 때도 “어느 장에 붙는 viewer인가”를 먼저 고른다.
 
-1. 장 B 구독 — MQTT/FAC GET 대시보드. 3D 불필요. Pages에서는 불가.
+1. 장 B 구독 — MQTT/FAC GET 대시보드. 3D 불필요. Pages에서는 불가. **골랐음(V3-0)·구현됨(V3-1)**: `/dashboard`, `server/mqtt.mjs` `server/chapter-b.mjs` `js/data/pubsub.js`. 구독만, 발행 없음. 3D 뷰와는 따로 있다.
 2. 장 C 조회 — AAS viewer 프론트 (`camtic-aas-web-viewer`가 비어 있음).
-3. 조인 — MQTT→ZMQ 브리지. 장 B와 C를 처음으로 잇는 작업. `09` 참고.
+3. 조인 — MQTT→ZMQ 브리지. 장 B와 C를 처음으로 잇는 작업. **구현됨(V3-3, 가정 형식)**: `bridge.mjs` `server/join.mjs` `server/zmtp.mjs`. 장 C DTO 대조·edge_forwarder 연결은 남음. `09` 참고. (장 C 조회 V3-2 는 보류)
 
 존 예산·셀 대수·견적은 `context/`만 본다. 시뮬 셀 ID(SORT…)와 A-3-n을 맞추지 않는다.

@@ -11,6 +11,7 @@ export function snapshot(state) {
       scenario: state.scenario,
       amrs: state.amrs.map((a) => ({ id: a.id, x: r2(a.x), z: r2(a.z), mode: a.mode, load: a.load?.dest ?? null, battery: r2(a.battery) })),
       hound: state.plant.hound ? { id: state.plant.hound.id, x: r2(state.plant.hound.x), z: r2(state.plant.hound.z), mode: state.plant.hound.mode, task: state.plant.hound.task, seen: state.plant.hound.seen, fixed: state.plant.hound.fixed } : null,
+      robots: state.plant.robots.map((r) => ({ id: r.id, role: r.role, x: r2(r.x), y: r2(r.y ?? 0), z: r2(r.z), mode: r.mode, task: r.task, battery: r.battery == null ? null : r2(r.battery) })),
     } : {}),
   };
 }

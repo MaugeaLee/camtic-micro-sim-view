@@ -1,7 +1,8 @@
 // AMR 경로 기하·편집: 우측 통행 차로, 접속, 최단 경로, 점검, 교차 구역, Admin 편집 함수.
-import { defaultLayout, normalizeLayout, validateLayout } from '../js/sim/layout.js';
+import { defaultLayout, normalizeLayout, partsLayout, validateLayout } from '../js/sim/layout.js';
 import { LANE, attach, cellGeo, cutAt, graphOf, journey, pathLength, routeIssues } from '../js/sim/route.js';
 import { junctions, mapOf, routeGeo } from '../js/sim/acs.js';
+import { RAIL, insetSeg, nodeRadii, railPlan, railWidth } from '../js/render/rails.js';
 import { AMR_HOMES_MAX, addExit, addHome, addNode, cycleEdge, moveHandle, removeHandle } from '../js/sim/amrdata.js';
 
 let pass = 0, fail = 0;
@@ -43,9 +44,38 @@ check('교차 구역 · SORT 출구와 PRESS 입구는 한 구역 · PRESS 출�
   && zs.some((z) => z.cells.includes('PRESS') && z.cells.includes('SCREW')) && zs.filter((z) => z.cells.includes('SCREW')).length === 2, zs.map((z) => `${z.cells.join('+')}@${z.x.toFixed(1)},${z.z.toFixed(1)} r${z.r.toFixed(2)}`).join(' '));
 check('충전 자리는 교차 구역 밖', L.amr.homes.every((h) => zs.every((z) => Math.hypot(h.x - z.x, h.z - z.z) > z.r + 0.62)));
 const map = mapOf(routeGeo(L));
-check('그리기용 지도: 간선 12 · 충전 자리 6 · 셀 3 + 완료품 적재 구역 + SORT 뒤쪽 입고 · 충전 자리는 루트를 등진다', map.edges.length === 12 && map.homes.length === 6 && map.cells.length === 5 && !map.cells.find((c) => c.id === 'OUT').bad
-  && !map.cells.some((c) => c.id.endsWith(':OUT')) && map.cells.some((c) => c.id === 'SORT:RAW')
+check('그리기용 지도: 간선 9 · 충전 자리 6 · 셀 3 + 완료품 적재 구역(원재료 하역·창고는 부품 루트) · 충전 자리는 루트를 등진다', map.edges.length === 9 && map.homes.length === 6 && map.cells.length === 4 && !map.cells.find((c) => c.id === 'OUT').bad
+  && !map.cells.some((c) => c.id.endsWith(':OUT') || c.id === 'SORT:RAW' || c.id === 'STORE')
   && map.homes.every((h) => near(h.heading, Math.PI, 1e-6) || near(h.heading, -Math.PI, 1e-6)));
+const pmap = mapOf(routeGeo(partsLayout(L)));
+check('부품 지도: 원재료 창고·SORT 뒤쪽 하역 도크가 닿음 · 도어트림 SORT 남쪽 지선(G1–R0) 없음 · 중심선 폭은 양방향보다 좁음',
+  ['STORE', 'SORT:RAW', 'PARTS'].every((id) => pmap.cells.some((c) => c.id === id && !c.bad)) && !map.edges.some((e) => e.center)
+  && railWidth({ center: true }) === RAIL.link && railWidth({}) === RAIL.two && RAIL.link < RAIL.one);
+
+{
+  const cut = insetSeg({ x: 0, z: 0 }, { x: 10, z: 0 }, 1.25, 1.25);
+  check('간선을 교차 원까지 자름(10 m · r 1.25 → 7.5 m)', cut && near(cut.L, 7.5) && near(cut.a.x, 1.25) && near(cut.b.x, 8.75));
+  check('짧은 간선은 원이 덮음', insetSeg({ x: 0, z: 0 }, { x: 1, z: 0 }, 1.25, 1.25) === null);
+  const R = nodeRadii(map);
+  check('교차 A1 반경 = 양방향 반폭 · 막다른 G4 도 양방향 반폭', near(R.get('A1'), RAIL.two / 2) && near(R.get('G4'), RAIL.two / 2));
+  const plan = railPlan(map);
+  const a1 = plan.joints.find((j) => j.id === 'A1');
+  const onA1 = plan.segs.filter((s) => Math.hypot(s.a.x - a1.x, s.a.z - a1.z) < 0.05 || Math.hypot(s.b.x - a1.x, s.b.z - a1.z) < 0.05);
+  check('잘린 레일은 교차 원 안에서 시작하지 않음', onA1.length === 0 && plan.segs.every((s) => {
+    const n = map.nodes.find((p) => p.id === 'A1');
+    return Math.hypot(s.a.x - n.x, s.a.z - n.z) >= a1.r - 1e-6 && Math.hypot(s.b.x - n.x, s.b.z - n.z) >= a1.r - 1e-6;
+  }));
+  check('양방향만 점선 · 단방향만 화살표 · 메시 묶음이 간선보다 적음', plan.dashes.length > 0 && plan.arrows.length > 0
+    && plan.dashes.length < 80 && plan.arrows.length < plan.segs.length * 6
+    && plan.segs.filter((s) => s.center).every((s) => !plan.dashes.some((d) => Math.abs(d.x - (s.a.x + s.b.x) / 2) < 0.01)));
+  const par = (h1, h2) => Math.abs(Math.sin(h1 - h2)) < 1e-6;
+  check('교차 패치는 붙은 간선 방향의 정사각형(원 아님)', plan.joints.every((j) => {
+    const es = map.edges.filter((e) => (e.a === j.id || e.b === j.id) && e.pa && e.pb);
+    return !es.length || es.some((e) => par(j.heading, Math.atan2(e.pb.x - e.pa.x, e.pb.z - e.pa.z)));
+  }));
+  const oldDash = map.edges.filter((e) => !e.oneway && !e.center).reduce((n, e) => n + Math.floor(Math.hypot(e.pb.x - e.pa.x, e.pb.z - e.pa.z) / 1.5), 0);
+  check('점선 간격이 예전(0.8+0.7)보다 성김', plan.dashes.length < oldDash);
+}
 
 // Admin 편집 함수
 const toLocal = (cell, x, z) => ({ x: x - L.cells[cell].x, z: z - L.cells[cell].z });

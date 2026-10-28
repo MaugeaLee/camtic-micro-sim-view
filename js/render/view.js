@@ -17,6 +17,7 @@ export class CellView {
     this.marks = new Map();
     this.selected = null;
     this.t = 0;
+    this.showLabels = true;
   }
 
   // state가 바뀔 때마다(start) 다시 짠다. 이전 그룹은 버린다.
@@ -34,6 +35,17 @@ export class CellView {
       if (fp) this.marks.set(c.id, makeMark(g, fp, c));
     }
     this.selected = state.selected;
+    this.applyLabels();
+  }
+
+  // 셀 머리 위 라벨(id·상태·재고). 패널 글자는 건드리지 않는다.
+  setLabels(on) {
+    this.showLabels = !!on;
+    this.applyLabels();
+  }
+
+  applyLabels() {
+    for (const m of this.marks.values()) m.label.visible = this.showLabels;
   }
 
   // 로드된 에셋 루트를 셀 그룹에 붙인다. 자리는 그룹에 두고, 메시는 셀 프레임 오프셋(glb.js cellFrame)으로 바닥(y=0)·XZ 중심에 앉힌다.
@@ -72,12 +84,15 @@ export class CellView {
   update(dt, state, events) {
     this.t += dt;
     for (const ev of events) this.onEvent(ev, state);
+    const parent = state.equipOf?.(state.followed)?.cell ?? null;
+    this.selected = state.selected ?? parent;
     const units = state.plant?.units;
     for (const c of state.cells) {
       const m = this.marks.get(c.id);
       if (!m) continue;
-      drawLabel(m, c, units?.[c.id], c.id === this.selected);
       const sel = c.id === this.selected;
+      drawLabel(m, c, units?.[c.id], sel);
+      paint(m, c.state, sel);
       m.floor.material.opacity = sel ? 0.12 + 0.08 * Math.sin(this.t * 4) : c.state === 'DOWN' ? 0.1 + 0.06 * Math.sin(this.t * 6) : 0.05;
     }
   }

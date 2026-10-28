@@ -5,12 +5,15 @@ import { runtime, assetUrl, apiPath } from './core/runtime.js';
 import { CELLS } from './sim/cells.js';
 import { FOOTPRINT, SITE_SPUR, canPlace, defaultLayout, extent, layoutStamp, normalizeLayout, partsLayout, placeItem, placeOf, poseOf, toLocal, translateSpur, moveSpurEnd, rotateSpur, validateLayout } from './sim/layout.js';
 import { ViewerState } from './sim/state.js';
+import { findEquip } from './sim/equip.js';
 import { AMR_MAX, DEFAULT_SCENARIO, SCENARIOS } from './sim/scenario.js';
 import { mapOf, routeGeo } from './sim/acs.js';
 import { AMR } from './sim/fleet.js';
 import { addExit, addHome, addNode, cycleEdge, moveHandle, removeHandle } from './sim/amrdata.js';
 import { dockIssues } from './sim/supply.js';
 import { DataHub } from './data/hub.js';
+import { equipmentStatus } from './data/monitor.js';
+import { ProcessTrace } from './data/trace.js';
 import { createStage } from './render/stage.js';
 import { CellView } from './render/view.js';
 import { FleetView } from './render/fleet.js';
@@ -25,8 +28,12 @@ import { RigView } from './render/rigs.js';
 import { PartsView } from './render/parts.js';
 import { OutSiteView } from './render/outsite.js';
 import { PartsSiteView } from './render/partsite.js';
+import { StoreSiteView } from './render/storesite.js';
 import { HoundView } from './render/hound.js';
+import { DroneView } from './render/drone.js';
+import { DRONE } from './sim/drone.js';
 import { LiftView } from './render/lifts.js';
+import { EquipView } from './render/equip.js';
 import { mainAmrModel, mainAmrNodes } from './render/mainamr.js';
 import { RENDER, assetFrame, assetRig, loadAssets, loadModel, cloneAsset } from './assets/loader.js';
 import { scanMovers } from './assets/scan.js';
@@ -42,7 +49,13 @@ const scenarioParam = params.get('scenario');
 let scenarioKey = scenarioParam === 'none' ? null : SCENARIOS[scenarioParam] ? scenarioParam : DEFAULT_SCENARIO;
 const amrParam = Number(params.get('amr'));
 const AMR_COUNT = Number.isInteger(amrParam) && amrParam >= 1 && amrParam <= AMR_MAX ? amrParam : null;
+// ?drones=0..3 드론 대수(기본: 시나리오 값) · ?inspect=0 점검 견마 끔
+const droneParam = params.get('drones') == null ? NaN : Number(params.get('drones'));
+const DRONES = Number.isInteger(droneParam) && droneParam >= 0 && droneParam <= DRONE.pads.length ? droneParam : undefined;
+const INSPECT_ON = params.get('inspect') === '0' ? false : undefined;
 
+// 장 B 구독·수신 점검은 서버가 있어야 한다(정적 호스팅에서는 숨김)
+if (NO_SERVER) document.getElementById('lnkDash')?.setAttribute('hidden', '');
 const stage = createStage(document.getElementById('viewport'));
 const field = buildField(stage.scene, FIELD);
 stage.fitShadow(FIELD.size.w, FIELD.size.d);
@@ -51,23 +64,28 @@ const monitor = params.get('cctv') === '0' ? null : new ControlMonitor(stage, FI
 const view = new CellView(stage.scene);
 const fleetView = new FleetView(stage.scene);
 // 부속 부품 AMR: 노란 차체 · 청록 통로선(도어트림 AMR 흰 차체 · 노란 통로선과 구분)
-const partsFleetView = new FleetView(stage.scene, { fleet: 'parts', body: 0xf2c14e, lane: 0x3fb6c9 });
+const partsFleetView = new FleetView(stage.scene, { fleet: 'parts', body: 0xf2c14e, lane: 0x3fb6c9, skipCells: ['SORT'] });
 const rigView = new RigView();
 const partsView = new PartsView(stage.scene);
 const outView = new OutSiteView(stage.scene);
 const depotView = new PartsSiteView(stage.scene, FOOTPRINT.PARTS);
+const storeView = new StoreSiteView(stage.scene, FOOTPRINT.STORE);
 const houndView = new HoundView(stage.scene);
+const inspectView = new HoundView(stage.scene, { id: 'HOUND-02', scan: 0x3fd0e6 });
+const droneView = new DroneView(stage.scene, DRONE.pads);
 const liftView = new LiftView();
+const equipView = new EquipView(stage.scene);
 const rig = new CameraRig(stage);
 const hub = new DataHub();
 const ui = new UI({
   onPlay: () => state.setRunning(!state.running),
   onSpeed: (x) => state.setSpeed(x),
   onSelect: (id) => {
+    if (!tracing()) camKit = false;
     state.select(state.selected === id ? null : id);
     if (place) place.selected = state.selected;
   },
-  onFollow: (id) => state.follow(state.followed === id ? null : id),
+  onFollow: (id) => { if (!tracing()) camKit = false; state.follow(state.followed === id ? null : id); },
   onScenario: (key) => { scenarioKey = key; start(); },
   onPlace: (id) => {
     if (!place) return;
@@ -80,14 +98,131 @@ const ui = new UI({
   onSave: saveLayout,
   onAdmin: () => setAdmin(!admin),
   onBuildMode: (mode) => setBuildMode(mode),
+  onDetailClose: () => { state.select(null); state.follow(null); },
+  onTrace: () => toggleTrace(),
+  onTraceClose: () => closeTrace(),
+  onLabels: (on) => view.setLabels(on),
 });
+const trace = new ProcessTrace();
+let camKit = false;
+let lastFocus = '';
+let viewBefore = null;
+
+// 패널·장비 모니터 갱신. 모니터는 선택한 셀 또는 따라가는 AMR·로봇의 상태 문서(JSON)를 그린다.
+function refreshUi() {
+  ui.update(state);
+  ui.setDetail(admin ? null : equipmentStatus(state, state.selected ?? state.followed));
+  ui.setTrace(admin || trace.mode === 'off' ? null : trace.view(state));
+}
+
+function toggleTrace() {
+  if (trace.mode === 'wait' || trace.mode === 'run') { closeTrace(); return; }
+  if (!state.plant?.route) {
+    state.log('warn', '공정 추적 불가', { obs: '공정 순서(route)가 없습니다. ?process=0 이면 꺼져 있음' });
+    return;
+  }
+  trace.start(state);
+  holdTraceCamera(true);
+  if (!state.running) state.setRunning(true);
+  state.log('info', '공정 추적 대기', { obs: '다음 입고 도어트림을 처음부터 적재 구역까지 · 가정 공정' });
+  refreshUi();
+}
+
+function tracing() {
+  return trace.mode === 'wait' || trace.mode === 'run';
+}
+
+// 추적 중에는 궤도·클릭이 카메라를 가져가지 않는다. 해제는 상단 버튼(또는 추적 패널 닫기).
+function holdTraceCamera(on) {
+  stage.controls.enabled = !on;
+}
+
+function closeTrace() {
+  const was = trace.mode;
+  if (was === 'wait' || was === 'run') {
+    trace.stop();
+    state?.log('info', '공정 추적 중지');
+  } else {
+    trace.stop();
+  }
+  if (camKit) { rig.follow(null); camKit = false; }
+  lastFocus = '';
+  viewBefore = null;
+  holdTraceCamera(false);
+  ui.setTrace(null);
+}
+
+function syncTrace() {
+  const before = trace.mode;
+  const doc = trace.tick(state);
+  if (before === 'wait' && trace.mode === 'run') {
+    const who = trace.no ?? trace.kit;
+    state.log('info', who != null ? `공정 추적 시작 키트 #${who}` : '공정 추적 시작', { obs: '입고 AMR 출발 · 가정 공정' });
+  }
+  if (before === 'run' && trace.mode === 'done') {
+    const R = trace.report;
+    state.log(R?.ok ? 'info' : 'warn', `공정 추적 ${R?.ok ? '완료' : '중단'} 키트 #${trace.no ?? trace.kit}`,
+      { obs: `${(R?.visits ?? []).join(' → ')} · ${R?.elapsed ?? '—'} s · 이전 화면으로` });
+    restoreView();
+  } else if (trace.mode === 'run') {
+    const f = trace.focus(state);
+    const key = f ? `${f.kind}:${f.id}` : '';
+    if (key && key !== lastFocus) {
+      lastFocus = key;
+      aimTrace();
+    }
+  }
+  ui.setTrace(admin || doc.mode === 'off' ? null : doc);
+}
+
+function rememberView() {
+  if (viewBefore) return;
+  viewBefore = { target: stage.controls.target.clone(), position: stage.camera.position.clone() };
+}
+
+function restoreView() {
+  camKit = false;
+  lastFocus = '';
+  const back = viewBefore;
+  viewBefore = null;
+  rig.follow(null);
+  holdTraceCamera(false);
+  if (back) rig.start(back.target, back.position);
+  else rig.reset();
+}
+
+function focusTarget(f) {
+  if (!f) return null;
+  if (f.kind === 'amr') return fleetView.focusOf(f.id, state) ?? partsFleetView.focusOf(f.id, state);
+  if (f.kind === 'cell') return view.focusOf(f.id);
+  const p = placeOf(layout, f.id);
+  if (!p) return null;
+  const fp = FOOTPRINT[f.id] ?? { w: 5, d: 5 };
+  return { center: new THREE.Vector3(p.x, 1.2, p.z), size: Math.max(fp.w, fp.d) };
+}
+
+function aimTrace() {
+  rememberView();
+  const at = () => focusTarget(trace.focus(state));
+  const now = at();
+  if (!now) return;
+  camKit = true;
+  rig.focus(now);
+  const f = trace.focus(state);
+  if (f?.kind === 'amr') rig.follow(() => at()?.center ?? null);
+  else rig.follow(null);
+}
 ui.setScenarios([{ key: '', label: '시나리오 없음' }, ...Object.entries(SCENARIOS).map(([key, s]) => ({ key, label: s.label }))], scenarioKey);
 
 const picker = new Picker(stage, [
-  { meshes: () => [...fleetView.pickables(), ...partsFleetView.pickables(), ...houndView.pickables()], key: 'amrId' },
+  { meshes: () => [...fleetView.pickables(), ...partsFleetView.pickables(), ...houndView.pickables(), ...inspectView.pickables(), ...droneView.pickables()], key: 'amrId' },
+  { meshes: () => equipView.pickables(), key: 'partId' },
   { meshes: () => view.pickables(), key: 'cellId' },
 ], (hit) => {
+  if (tracing()) return;
+  camKit = false;
   if (hit?.amrId) state.follow(state.followed === hit.amrId ? null : hit.amrId);
+  else if (hit?.partId) state.follow(state.followed === hit.partId ? null : hit.partId);
   else if (hit?.cellId) state.select(state.selected === hit.cellId ? null : hit.cellId);
   else { state.select(null); state.follow(null); }
 });
@@ -124,8 +259,9 @@ const partsOps = {
 function start() {
   const running = state?.running ?? params.get('play') === '1';
   const speed = state?.speed ?? 1;
-  state = new ViewerState({ cells: CELLS, scenario: scenarioKey, layout, amr: AMR_COUNT, process: processDoc });
+  state = new ViewerState({ cells: CELLS, scenario: scenarioKey, layout, amr: AMR_COUNT, process: processDoc, drones: DRONES, inspect: INSPECT_ON });
   partsView.clear();
+  equipView.clear();
   view.setup(state, { extent });
   view.applyLayout(layout);
   aimCctv();
@@ -136,6 +272,11 @@ function start() {
   partsFleetView.setup(state);
   showStaticMap();
   rig.follow(null);
+  camKit = false;
+  lastFocus = '';
+  viewBefore = null;
+  holdTraceCamera(false);
+  trace.stop();
   hub.reset();
   for (const c of state.cells) if (RENDER.loaded.has(c.asset)) mount(c);
   const rt = runtime();
@@ -154,6 +295,7 @@ function start() {
   state.setSpeed(speed);
   if (running) state.setRunning(true);
   ui.reset(state);
+  ui.setDetail(null);
   ui.setAdmin(admin, state.cells, buildMode);
   if (admin) state.log('info', 'Admin 모드', { obs: buildHint() });
 }
@@ -188,6 +330,12 @@ function mount(cell) {
   hideFeedProps(cell, obj);
   bindRig(cell, obj);
   bindLift(cell, obj);
+  equipView.bind(cell.id, {
+    obj,
+    work: state.plant?.work[cell.id],
+    rigCell: rigView.cells.get(cell.id),
+    liftRoot: liftView.cells.get(cell.id)?.root,
+  });
 }
 
 // 리프트 셀(PRESS·SCREW): GLB 의 AMR_MAIN_JIG(= 메인 AMR 자세 인스턴스)를 숨기고 리프트 기둥·클립을 붙인다.
@@ -230,16 +378,23 @@ function bindRig(cell, obj) {
   });
 }
 
-function drawWork() {
+function drawWork(dt = 0) {
   depotView.update(placeOf(layout, 'PARTS'));
+  storeView.update(state.plant?.store ? placeOf(layout, 'STORE') : null);
   const plant = state.plant;
   houndView.update(plant?.hound?.view() ?? null);
+  inspectView.update(plant?.inspector?.view() ?? null);
+  droneView.update(plant?.drones?.view().drones ?? null, dt);
   if (!plant?.proc) { outView.update(null); return; }
   for (const [id, cw] of Object.entries(plant.work)) {
     if (id === 'OUT') continue;
     const v = cw.view();
     rigView.update(id, v);
     if (v.lift) liftView.update(id, v.lift);
+    if (v.body) {
+      const grabbed = rigView.cells.get(id)?.body?.t?.o;
+      if (grabbed) equipView.put(`${id}:${v.body.name}`, id, 'body', [grabbed]);
+    }
   }
   outView.update(plant.work.OUT?.view() ?? null, plant.proc.kit.size, placeOf(layout, 'OUT'));
   partsView.update(plant.partPoses());
@@ -253,27 +408,39 @@ function hideAssetAmrs(cell, obj) {
 }
 
 function focusSelection(ev) {
-  if (ev.type === 'select' && ev.id) { rig.follow(null); rig.focus(view.focusOf(ev.id)); }
+  if (tracing()) return;
+  if (ev.type === 'select' && ev.id) { camKit = false; rig.follow(null); rig.focus(view.focusOf(ev.id)); }
   if (ev.type === 'follow') {
+    if (camKit && !ev.id) return;
     if (!ev.id) { rig.follow(null); return; }
-    const at = () => fleetView.focusOf(ev.id, state) ?? partsFleetView.focusOf(ev.id, state) ?? houndView.focusOf(ev.id, state.plant?.hound?.view());
-    rig.focus(at());
+    const at = () => fleetView.focusOf(ev.id, state) ?? partsFleetView.focusOf(ev.id, state) ?? houndView.focusOf(ev.id, state.plant?.hound?.view())
+      ?? inspectView.focusOf(ev.id, state.plant?.inspector?.view()) ?? droneView.focusOf(ev.id, state.plant?.drones?.view().drones)
+      ?? equipView.focusOf(ev.id);
+    const now = at();
+    if (now) rig.focus(now);
     rig.follow(() => at()?.center ?? null);
   }
 }
 
 async function loadCellAssets() {
-  await Promise.all([loadAssets(state.cells.map((c) => c.asset), { base: assetUrl() }), loadWorkModel(), loadHoundModel()]);
+  await Promise.all([loadAssets(state.cells.map((c) => c.asset), { base: assetUrl() }), loadWorkModel(), loadHoundModel(), loadDroneModel()]);
   for (const c of state.cells) if (RENDER.loaded.has(c.asset)) mount(c);
   for (const [key, err] of RENDER.errors) state.log('warn', `에셋 로드 실패: ${key}`, { obs: err });
-  ui.update(state);
+  refreshUi();
 }
 
 // 견마 사족 모델. 참조 레포 quadruped.glb. 없으면 그리지 않는다(상자 대체 없음).
 async function loadHoundModel() {
   const scene = await loadModel('quadruped', { base: assetUrl() });
-  if (scene) houndView.useModel(scene);
+  if (scene) { houndView.useModel(scene); inspectView.useModel(scene); }
   else state.log('warn', '견마 모델 없음', { obs: 'quadruped.glb 를 못 읽음' });
+}
+
+// 드론 모델. 참조 레포 drone.glb. 없으면 이착륙장만 그린다.
+async function loadDroneModel() {
+  const scene = await loadModel('drone', { base: assetUrl() });
+  if (scene) droneView.useModel(scene);
+  else state.log('warn', '드론 모델 없음', { obs: 'drone.glb 를 못 읽음' });
 }
 
 // 작업물(키트) 모델. 공정 정의 kit.model 이 에셋 키다(예: doortrim). 없으면 상자로 그린다.
@@ -400,7 +567,7 @@ function enableTool() {
     onChange: (doc) => commitLayout(doc, null),
     onPreview: previewPlace,
     canPlace, poseOf, extent, placeItem, translateSpur, moveSpurEnd, rotateSpur,
-    sites: [outView.root, depotView.root],
+    sites: [outView.root, depotView.root, storeView.root],
     spur: SITE_SPUR,
   });
   place.setLayout(layout);
@@ -412,6 +579,7 @@ function previewPlace(doc) {
   if (plant?.proc) outView.update(plant.work.OUT?.view() ?? null, plant.proc.kit.size, placeOf(doc, 'OUT'));
   else outView.update(null);
   depotView.update(placeOf(doc, 'PARTS'));
+  storeView.update(plant?.store ? placeOf(doc, 'STORE') : null);
   if (!plant) {
     fleetView.showMap(routeOps.mapOf(doc));
     partsFleetView.showMap(doc.parts ? routeOps.mapOf(partsLayout(doc)) : null);
@@ -474,7 +642,7 @@ function setAdmin(on) {
     startPoll();
     state?.log('info', '보기 모드');
   }
-  if (state) ui.update(state);
+  if (state) refreshUi();
 }
 
 const clock = new THREE.Clock();
@@ -484,32 +652,46 @@ function frame() {
   requestAnimationFrame(frame); // 한 프레임에서 예외가 나도 루프는 계속
   const rdt = Math.min(clock.getDelta(), 0.1);
   state.advance(rdt);
+  if (trace.mode === 'wait' || trace.mode === 'run') syncTrace();
   hub.tick(state);
   const events = state.drainEvents();
   view.update(rdt, state, events);
   fleetView.update(rdt, state, events);
   partsFleetView.update(rdt, state, events);
-  drawWork();
+  drawWork(rdt);
+  equipView.mark(state.followed);
   for (const ev of events) focusSelection(ev);
   rig.update(rdt);
   monitor?.update(rdt, `CCTV  ${hms(state.time)}`);
   stage.render();
-  if ((uiAcc += rdt) >= 0.25) { uiAcc = 0; ui.update(state); }
+  const picked = events.some((ev) => ev.type === 'select' || ev.type === 'follow');
+  if ((uiAcc += rdt) >= 0.25 || picked) { uiAcc = 0; refreshUi(); }
 }
 
 layout = await fetchLayout();
 processDoc = params.get('process') === '0' ? null : await fetchProcess();
+storeView.setDef(processDoc?.cells?.SORT?.inbound?.store ?? null);
 start();
 picker.enabled = !admin;
 if (admin) enableTool();
 if (AUTOLOAD) await loadCellAssets();
-// 점검용: ?warp=초 시뮬을 그만큼 미리 진행 · ?focus=셀 id 또는 AMR id
+// 점검용: ?trace=1 다음 입고 키트 추적 · ?warp=초 시뮬을 그만큼 미리 진행 · ?focus=셀 id 또는 AMR id
+if (params.get('trace') === '1' && state.plant?.route) {
+  trace.start(state);
+  holdTraceCamera(true);
+  if (!state.running) state.setRunning(true);
+}
 const warp = Number(params.get('warp'));
-if (warp > 0) for (let t = 0; t < warp; t += 0.1) state.step(0.1);
+if (warp > 0) {
+  for (let t = 0; t < warp; t += 0.1) {
+    state.step(0.1);
+    if (trace.mode === 'wait' || trace.mode === 'run') trace.tick(state);
+  }
+}
 const focusId = params.get('focus');
 if (focusId) {
   if (state.cell(focusId)) state.select(focusId);
-  else if (state.amrs.some((a) => a.id === focusId) || state.plant?.hound?.id === focusId) state.follow(focusId);
+  else if (state.amrs.some((a) => a.id === focusId) || state.plant?.robots?.some((r) => r.id === focusId) || findEquip(state, focusId)) state.follow(focusId);
 }
 // 점검용: ?cam=px,py,pz,tx,ty,tz 카메라 위치·궤도 중심(필드 좌표)
 const cam = (params.get('cam') ?? '').split(',').map(Number);
@@ -525,10 +707,13 @@ if (warp > 0 || focusId) {
   partsFleetView.update(0, state, events);
   drawWork();
   for (const ev of events) focusSelection(ev);
+  if (trace.mode === 'run' && !focusId && cam.length !== 6) aimTrace();
   rig.update(2);
   monitor?.update(0, `CCTV  ${hms(state.time)}`);
   monitor?.refresh();
-  ui.update(state);
+  refreshUi();
+} else if (trace.mode !== 'off') {
+  refreshUi();
 }
 const statusUrl = apiPath('status');
 if (!NO_SERVER && statusUrl) {
@@ -542,5 +727,7 @@ frame();
 // 개발용 핸들. 콘솔에서 __viewer.loadAssets() 등.
 window.__viewer = {
   get state() { return state; }, get layout() { return layout; }, get admin() { return admin; },
-  stage, field, view, fleetView, partsFleetView, rigView, liftView, partsView, outView, depotView, houndView, rig, hub, ui, get place() { return place; }, get routeTool() { return routeTool; }, RENDER, start, loadAssets: loadCellAssets, applyLayout, setAdmin,
+  stage, field, view, fleetView, partsFleetView, rigView, liftView, equipView, partsView, outView, depotView, storeView, houndView, inspectView, droneView, rig, hub, ui, get place() { return place; }, get routeTool() { return routeTool; }, RENDER, start, loadAssets: loadCellAssets, applyLayout, setAdmin,
+  status: (id) => equipmentStatus(state, id),
+  trace,
 };

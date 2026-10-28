@@ -95,7 +95,7 @@ export function insideKeepout(x, z, layout, pad = HOUND.pad) {
   return keepouts(layout, pad).some((b) => hits(x, z, b));
 }
 
-function inField(x, z, r = HOUND.radius) {
+export function inField(x, z, r = HOUND.radius) {
   const hw = FIELD_SIZE.w / 2 - r, hd = FIELD_SIZE.d / 2 - r;
   return x >= -hw && x <= hw && z >= -hd && z <= hd;
 }
@@ -114,7 +114,7 @@ function segHits(a, b, box) {
   return clip(-dx, a.x - box.x0) && clip(dx, box.x1 - a.x) && clip(-dz, a.z - box.z0) && clip(dz, box.z1 - a.z);
 }
 
-function clearSeg(a, b, boxes) {
+export function clearSeg(a, b, boxes) {
   return boxes.every((box) => !segHits(a, b, box));
 }
 
@@ -140,8 +140,8 @@ export function approachOf(p, boxes) {
 
 function aisles(boxes) {
   const hw = FIELD_SIZE.w / 2, hd = FIELD_SIZE.d / 2;
-  // PARTS 는 남쪽이라 셀 사이 세로 통로를 가리지 않는다. 충전 자리(z≈9.6)·필드 끝은 순찰에 안 쓴다.
-  const row = boxes.filter((b) => b.id !== 'PARTS');
+  // PARTS(남쪽)·STORE(북쪽 통로 옆)는 셀 줄 밖이라 셀 사이 세로 통로를 가리지 않는다. 충전 자리(z≈9.6)·필드 끝은 순찰에 안 쓴다.
+  const row = boxes.filter((b) => b.id !== 'PARTS' && b.id !== 'STORE');
   const z1 = row.length ? Math.max(...row.map((b) => b.z1)) : 4;
   const z0 = row.length ? Math.min(...row.map((b) => b.z0)) : -8;
   const north = Math.min(hd - 1.3, z1 + 1.5);
@@ -214,8 +214,12 @@ export function routeTo(from, to, layout) {
 }
 
 export class Hound {
-  constructor({ home, layout } = {}) {
-    this.id = HOUND.id;
+  constructor({ home, layout, id = HOUND.id, rank = 0 } = {}) {
+    this.id = id;
+    this.rank = rank;           // 견마끼리 마주치면 rank 큰 쪽이 물러난다
+    this.peers = [];            // 같은 통로를 쓰는 다른 견마
+    this.yieldT = 0;
+    this.peerPass = 0;
     this.world = worldOf(layout);
     this.home = home ?? this.world.patrol[0];
     this.x = this.home.x;
@@ -261,6 +265,7 @@ export class Hound {
   step(h, amrs, host, layout) {
     if (layout) this.world = worldOf(layout);
     this.gait += h;
+    if (this.peerPass > 0) this.peerPass -= h;
     for (const [k, t] of this.cool) {
       const n = t - h;
       if (n <= 0) this.cool.delete(k);
@@ -401,14 +406,39 @@ export class Hound {
       else if (this.mode === 'return') this.task = '복귀 양보';
       return d;
     }
+    const peer = this.peerAhead(nx, nz);
+    if (peer) {
+      this.v = 0;
+      this.yieldT += h;
+      this.task = `${this.taskBase?.() ?? '순찰'} 양보(${peer.id})`;
+      if (this.rank > peer.rank && this.yieldT > 0.3) this.backOff(peer, h);
+      return d;
+    }
+    this.yieldT = 0;
     this.x = nx;
     this.z = nz;
     return Math.hypot(x - this.x, z - this.z);
   }
 
+  // 일부러 서 있는(스캔·충전) 다른 견마가 앞(±90°)에 있으면 선다. 움직이는 견마는 순위 낮은 쪽이 비킨다(patrol.js).
+  // 8 s 넘게 막히면 4 s 동안 지나간다(서 있는 견마가 통로를 오래 막는 배치의 안전망).
+  peerAhead(nx, nz) {
+    if (this.peerPass > 0) return null;
+    const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
+    const p = this.peers.find((q) => q !== this && q.parked
+      && Math.hypot(q.x - nx, q.z - nz) < 2 * HOUND.radius + HOUND.gap
+      && (q.x - this.x) * fx + (q.z - this.z) * fz > 0) ?? null;
+    if (p && this.yieldT > 8) { this.peerPass = 4; this.yieldT = 0; return null; }
+    return p;
+  }
+
+  get parked() { return false; }
+
+  backOff() { return false; }
+
   view() {
     return {
-      id: this.id, x: this.x, z: this.z, heading: this.heading, v: this.v,
+      id: this.id, role: 'recover', x: this.x, z: this.z, heading: this.heading, v: this.v,
       mode: this.mode, task: this.task, gait: this.gait,
       moving: this.v > 0.08,
       job: this.job ? { kind: this.job.kind, ids: this.job.ids, x: this.job.x, z: this.job.z } : null,

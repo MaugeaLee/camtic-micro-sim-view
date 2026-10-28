@@ -1,5 +1,5 @@
 // 시나리오: 시뮬 시간축으로 셀 상태(IDLE/BUSY/DOWN)를 구동하고, 운반은 ACS(acs.js)에 미션으로 넘긴다. DOM·three 없음.
-// 흐름 가정: 도어트림 AMR이 원재료를 SORT 랙 뒤(SORT:RAW)에 하역하면 협동로봇이 랙에 올리고, 분류된 키트를 북쪽 양팔 도크에서 AMR에 실어 SCREW·PRESS 로 나른다.
+// 흐름 가정: 부품 AMR이 원재료 창고(STORE)의 도어트림 키트를 SORT 랙 뒤(SORT:RAW)에 하역하면 협동로봇이 랙에 올리고, 분류된 키트를 북쪽 양팔 도크에서 AMR에 실어 SCREW·PRESS 로 나른다.
 // 사이클·재고·고장 시각은 모두 가정값이다. 실측·확정 공정이 아니다. 기본 시나리오에는 고장이 없다.
 // 공정 정의(process.default.json)를 주면 키트(지그 + 도어트림)·부품이 엔티티(소유자 하나)가 된다.
 // 공정 순서 route(SORT → SCREW → PRESS → SCREW → OUT): 양팔이 지그째 메인 AMR MAIN 패널에 올림 → 셀 리프트 자리에 서면 클립이 지그를
@@ -11,13 +11,16 @@
 // 흐름 안 키트 수(WIP)는 플릿 − 1 이하 — 리프트에 키트가 있으면 빈 AMR 이 적어도 한 대 있다.
 import { Acs, shareCross } from './acs.js';
 import { Hound } from './hound.js';
-import { AMR_HOMES_MAX, RAW_IN } from './amrdata.js';
+import { CellHealth, InspectHound } from './patrol.js';
+import { DRONE, DroneFleet } from './drone.js';
+import { AMR_HOMES_MAX, RAW_IN, STORE } from './amrdata.js';
 import { CellWork } from './cellwork.js';
 import { placeOf, toLocal, toWorld } from './layout.js';
 import { OutWork } from './outwork.js';
 import { Parts } from './parts.js';
 import { SortFeed } from './sortfeed.js';
 import { SortWork } from './sortwork.js';
+import { Store } from './store.js';
 import { normalizeProcess, outDef, passOf, supplyDef, workDef } from './process.js';
 import { Supply } from './supply.js';
 
@@ -32,7 +35,7 @@ export const AMR_MAX = AMR_HOMES_MAX;
 const base = {
   assumed: true,
   amr: 6,
-  parts: 3,     // 부속 부품 AMR(도어트림 AMR 과 따로 — 창고→SORT 투입, SORT 레인→라인 두 구간)
+  parts: 6,     // 부속 부품 AMR(도어트림 AMR 과 따로 — 창고→SORT 투입, SORT 레인→라인 두 구간)
   stage: 3,
   source: 'SORT',
   sinks: ['SCREW', 'PRESS'],
@@ -41,6 +44,8 @@ const base = {
   buffer: 3,
   faults: [],
   period: 0,
+  inspect: true,  // 설비 점검 견마(HOUND-02, patrol.js)
+  drones: 3,      // 공정 검사 2 + 재고 실사 1 (drone.js)
 };
 
 export const SCENARIOS = Object.freeze({
@@ -64,14 +69,17 @@ export function validateScenario(def) {
   if (!def || typeof def !== 'object') return ['시나리오가 객체 아님'];
   if (!(def.amr >= 0 && def.amr <= AMR_MAX)) errors.push(`amr은 0~${AMR_MAX}`);
   if (def.parts != null && !(def.parts >= 0 && def.parts <= AMR_MAX)) errors.push(`parts는 0~${AMR_MAX}`);
+  if (def.drones != null && !(Number.isInteger(def.drones) && def.drones >= 0 && def.drones <= DRONE.pads.length)) errors.push(`drones는 0~${DRONE.pads.length}`);
   for (const id of [def.source, ...(def.sinks ?? [])]) if (!(def.cycle?.[id] > 0)) errors.push(`${id} cycle은 양수`);
   if (def.period && def.faults.some((f) => f.at + f.dur > def.period)) errors.push('고장 구간이 period 밖');
   return errors;
 }
 
 export class Plant {
-  constructor(def, { layout, cells, amr, process = null } = {}) {
+  constructor(def, { layout, cells, amr, process = null, drones = null, inspect = null } = {}) {
     if (amr != null) def = { ...def, amr };
+    if (drones != null) def = { ...def, drones };
+    if (inspect != null) def = { ...def, inspect };
     const errors = validateScenario(def);
     if (errors.length) throw new Error(errors.join(' · '));
     this.def = def;
@@ -98,11 +106,17 @@ export class Plant {
     this.rack = null;
     this.supply = null;         // 부속 부품 AMR 플릿(공정 정의에 supply 가 있을 때)
     this.inM = null;            // 도어트림 입고 미션(한 건)
+    this.store = null;          // 도어트림 원재료 창고(공정 정의 SORT inbound.store 와 레이아웃 STORE 자리가 있을 때)
     this.route = null;          // 공정 순서(공정 정의 route) — 있으면 키트 엔티티 step 이 그 칸 번호
     this.lifts = [];            // 리프트 셀 id
     this.inFlow = new Set();    // 분류 뒤 ~ 적재 구역 전 키트 엔티티
     this.acs.onHome = (a) => this.dropJig(a);
     this.hound = new Hound({ layout });   // 견마: 통로 관제 보행 · 이상 감지·전파·접촉 리커버리(가정)
+    this.health = new CellHealth([def.source, ...def.sinks]);
+    this.inspector = def.inspect === false ? null : new InspectHound({ layout, cells: [def.source, ...def.sinks], health: this.health });
+    const dogs = [this.hound, this.inspector].filter(Boolean);
+    for (const d of dogs) d.peers = dogs;
+    this.drones = new DroneFleet({ count: def.drones ?? 0 });
     this.proc = process ? normalizeProcess(process, { cycle: def.cycle }) : null;
     if (this.proc) this.setupProcess();
   }
@@ -146,6 +160,9 @@ export class Plant {
       this.supply = new Supply(this, U, this.layout, this.def.parts, feed);
       this.linkCross();
     }
+    // 원재료 창고는 부품 창고 옆(남쪽 통로)이라 부품 AMR 이 나른다. 부품 플릿이 없으면 창고도 없다(아래 inCarrier).
+    const cA = this.supply?.acs;
+    if (this.rack && src.inbound?.store && cA?.cells[STORE] && cA.cells[RAW_IN] && placeOf(this.layout, STORE)) this.store = new Store(STORE, src.inbound.store, this, this.kitSpec);
     if (this.route) {
       const miss = this.route.slice(1, -1).filter((id) => !this.lifts.includes(id));
       if (miss.length || this.route[0] !== S || !this.work.OUT) throw new Error(`공정 순서 ${this.route.join('→')}: 시나리오 셀·OUT 과 안 맞음 ${miss.join(',')}`);
@@ -183,6 +200,9 @@ export class Plant {
     this.supply?.setLayout(layout);
     this.hound.bind(layout);
     this.hound.reset();
+    this.inspector?.bind(layout);
+    this.inspector?.reset();
+    this.drones.reset();
     this.linkCross();
     this.placeDocks();
     this.inM = null;
@@ -201,12 +221,21 @@ export class Plant {
       else this.runSink(u, h);
     }
     this.work.OUT?.step(h);
+    this.store?.step();
     this.runTimed();
     this.dispatch();
     this.acs.step(h);
     this.supply?.step(h);
     this.hound.step(h, this.allAmrs, host, this.layout);
+    this.health.step(h, this.units);
+    this.inspector?.step(h, this.allAmrs, host, this.layout);
+    this.drones.step(h, this, host);
     for (const u of Object.values(this.units)) host.setCellState(u.id, u.state);
+  }
+
+  // 순찰·점검 로봇(견마·드론) — 목록·추적·hub
+  get robots() {
+    return [this.hound.view(), ...(this.inspector ? [this.inspector.view()] : []), ...this.drones.drones.map((d) => d.view())];
   }
 
   runTimed() {
@@ -249,6 +278,7 @@ export class Plant {
       }
       case 'rack': return this.worldOf(H.cell, [...this.ptArr(this.rack.pts[H.i]), this.work[H.cell]?.rackYaw?.() ?? 0]);
       case 'slot': return this.worldOf(H.cell, this.ptArr(this.slots[H.cell].pts[H.i]));
+      case 'store': return this.worldOf(H.cell, this.store.pt(H.i));
       case 'move': {
         const u = smooth(Math.min(1, Math.max(0, (this.time - H.t0) / H.dur)));
         const A = H.from, B = this.target(H.to) ?? H.from;
@@ -321,9 +351,10 @@ export class Plant {
     const cap = this.rack ? Math.min(this.def.buffer, this.rack.items.length) : this.def.buffer;
     // 공정 정의가 있으면 키트는 랙에 생기지 않는다 — 도어트림 AMR 이 랙 뒤(SORT:RAW)에 하역해야 협동로봇이 랙에 올린다.
     if (this.proc && this.rack && sw) {
-      if (this.inM && !this.acs.queue.includes(this.inM) && !this.acs.amrs.some((a) => a.mission === this.inM)) this.inM = null;
-      if (this.rack.items.includes(null) && !this.inM && this.acs.ok(u.id) && this.acs.ok(RAW_IN)) this.inM = this.acs.request(this.inMission());
-      const raw = this.inM || this.acs.amrs.some((a) => a.mission?.raw);
+      const C = this.inCarrier;
+      if (this.inM && !C?.queue.includes(this.inM) && !C?.amrs.some((a) => a.mission === this.inM)) this.inM = null;
+      if (C && this.rack.items.includes(null) && !this.inM && C.ok(u.id) && C.ok(RAW_IN) && (!this.store || C.ok(STORE))) this.inM = C.request(this.inMission());
+      const raw = this.inM || C?.amrs.some((a) => a.mission?.raw);
       const busy = !!sw.op || raw;
       if (this.kits.length >= cap && !busy) { u.state = 'IDLE'; u.progress = 0; return; }
       u.state = busy ? 'BUSY' : 'IDLE';
@@ -348,21 +379,36 @@ export class Plant {
     this.units[this.def.source].done++;
   }
 
-  // 도어트림 입고: 충전 자리에서 원재료를 싣고 SORT 랙 뒤(SORT:RAW)에 하역. 적재는 북쪽 양팔 도크.
+  // 입고 운반 ACS: 원재료 창고가 있으면 부품 플릿, 없으면(예전 공정 정의·예전 레이아웃) SORT:RAW 가 있는 도어트림 플릿. 둘 다 없으면 null.
+  get inCarrier() {
+    if (this.store) return this.supply.acs;
+    return this.acs.cells[RAW_IN] ? this.acs : null;
+  }
+
+  // 도어트림 입고: 원재료 창고(STORE) 도크에서 선반 키트를 싣고 SORT 랙 뒤(SORT:RAW)에 하역(부품 AMR). 적재는 북쪽 양팔 도크.
+  // 창고가 없으면 도어트림 AMR 이 충전 자리에서 싣는다(그때는 키트가 AMR 위에 생긴다).
   inMission() {
-    const S = this.def.source, sw = this.work[S];
+    const S = this.def.source, sw = this.work[S], W = this.store;
     const loadT = this.proc?.cells?.[S]?.inbound?.load ?? 5;
     const m = {
       raw: true,
-      from: null,
-      what: { pick: '도어트림 입고', wait: '원재료 적재 대기', hand: '원재료 적재', tag: '입고', dock: S, carry: () => `${S} 뒤쪽 도크로 하역` },
-      ready: () => !this.units[S].down,
+      from: W ? STORE : null,
+      what: W
+        ? { pick: '원재료 창고로', wait: '창고 선반 키트 대기', hand: '원재료 적재', tag: STORE, dock: S, carry: () => `${S} 뒤쪽 도크로 하역` }
+        : { pick: '도어트림 입고', wait: '원재료 적재 대기', hand: '원재료 적재', tag: '입고', dock: S, carry: () => `${S} 뒤쪽 도크로 하역` },
+      ready: () => !this.units[S].down && (!W || W.ready > 0),
       pickup: (a) => {
+        if (W) {
+          const got = W.take(a, loadT);
+          if (!got) return false;
+          m.e = got.e; m.T = got.T;
+          return got.T;
+        }
         m.e = this.parts.add('kit', { k: 'amr', id: a.id }, this.kitSpec);
         return this.timer(loadT);
       },
       load: (a) => ({ id: `R${m.e.id}`, e: m.e, dest: RAW_IN, amr: a.id, raw: true }),
-      dest: () => (this.acs.ok(RAW_IN) ? RAW_IN : null),
+      dest: () => (this.inCarrier?.ok(RAW_IN) ? RAW_IN : null),
       canDrop: () => !this.units[S].down && this.rack.items.includes(null) && !sw.busy(),
       unload: (a) => {
         const e = a.load?.e;
@@ -380,10 +426,11 @@ export class Plant {
         if (m.U?.started) return;
         if (m.U) m.U.cancel = true;
         const e = a?.load?.e ?? m.e;
-        if (e && this.parts.get(e.id) && e.holder.k !== 'rack' && e.holder.k !== 'pair') {
+        if (e && this.parts.get(e.id) && e.holder.k !== 'rack' && e.holder.k !== 'pair' && e.holder.k !== 'store') {
           const i = this.rack.items.indexOf(e);
           if (i >= 0) this.rack.items[i] = null;
-          this.parts.remove(e);
+          if (W && i < 0) W.giveBack(e);
+          else this.parts.remove(e);
         }
       },
     };
@@ -641,6 +688,9 @@ export class Plant {
       acs: this.acs.summary(),
       supply: this.supply ? { delivered: this.supply.delivered, acs: this.supply.acs.summary() } : null,
       hound: this.hound.view(),
+      inspector: this.inspector?.view() ?? null,
+      drones: this.drones.view(),
+      health: this.health.view(),
       parts: this.parts.items.size,
       violations: this.parts.violationCount,
     };

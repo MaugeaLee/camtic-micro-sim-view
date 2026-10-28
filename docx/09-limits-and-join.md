@@ -41,15 +41,15 @@
 
 수요 시나리오 “LH 도어트림 재배정”은 산정 쪽 문구. 시뮬 고객 표기는 서연인테크·쉐플러코리아.
 
-## 조인 (가능한 경로, 미구축)
+## 조인 (브리지는 가정 형식으로 있음 · 장 C 연결 미확인)
 
 ```
 micro-assembly
   ├─ AASX ──POST /api/packages──► aas-backend-viewer (정적 트리·NodeSet 파일)
   └─ MQTT PubSub JSON
          │
-         ▼  NEW bridge (없음)
-    collector.sim.{cell_id}.data   ZeroMQ
+         ▼  bridge.mjs · server/join.mjs (V3-3, DTO 가정)
+    collector.sim.{device}.data   ZeroMQ PUB tcp://127.0.0.1:5558 (가정 포트)
          │
          ▼
     middleware_edge_forwarder
@@ -59,6 +59,20 @@ micro-assembly
 ```
 
 브리지가 할 일: `opcua/json/#` 구독 → PubSub JSON 디코드 → `MsgDataDTO`로 PUB. `engineering.csv`로 `tag_map.json`을 만들면 AAS path와 browse path를 맞출 수 있다. JSON Environment만으로는 viewer 업로드가 안 된다(AASX 필요).
+
+**이 레포의 브리지(V3-3).** `npm run bridge`.
+- 장 B 브로커의 `opcua/json/#` 를 구독하고 `decode`(`js/data/pubsub.js`)로 푼다. `data` 항목만 ZeroMQ PUB 으로 넘긴다.
+- ZeroMQ 는 `server/zmtp.mjs` 의 ZMTP 3.0 · NULL 메커니즘 최소 구현이다(의존성 없음, 암호·인증 없음). libzmq 4.3.5 SUB 와 붙는 것은 확인했다.
+- **본문은 가정 DTO `camtic-sim-bridge/0`** 다. 장 C `MsgDataDTO` 를 이 레포에서 본 적이 없어서 이름만 맞춘 것이 아니라 아예 새로 정했다:
+  - 머리: `schema` `kind:"sim"` `device_key`(DataSetWriter 소문자) `timestamp_ms`(메시지 Timestamp) `received_ms` `seq` `source{chapter:"B",publisher,group,writer,mqtt_topic}`
+  - `tags[]`: `name` `value` `quality(good|bad)` `ts_ms` `unit` `label` `aas_path`(메타 `AAS.IdShortPath`) `browse_path`(`tag_map.json`, 없으면 null)
+  - 2프레임 멀티파트: [토픽, JSON]. 5 s 마다 `collector.sim.bridge.health`.
+- 붙일 때 고칠 곳은 `toDto` 한 곳이다. 확인할 것:
+  - 장 C DTO 필드 이름·직렬화(JSON인지, 프레임 수);
+  - edge_forwarder 가 kind `sim` 을 받는지(기본 `plc` 만);
+  - `ZMQ_SUB_ENDPOINTS` 에 브리지 주소 추가;
+  - 포트 5558 이 비는지.
+- 넘기지 않는 것: 이벤트·명령·AAS 환경. MQTT 로 발행하지 않고, ZeroMQ 명령(`middleware.gateway.cmd_*`)을 받지 않는다.
 
 하지 말 것: collector가 MQTT를 직접 먹는다 가정, viewer 트리가 관절을 실시간으로 움직인다 가정, gateway가 PubSub를 구독한다 가정.
 

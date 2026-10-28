@@ -1,18 +1,20 @@
-// 공급 AMR 플릿을 그린다: 차체·바퀴·상태등·적재 토트, 남은 경로선, ACS 지도(루트 통로·셀 정차 칸·충전 자리·교차 구역) 바닥 표시.
+// 공급 AMR 플릿을 그린다: 차체·바퀴·상태등·적재 토트, 남은 경로선, ACS 지도(루트 레일·셀 정차 칸·충전 자리·교차 구역) 바닥 표시.
 // state.fleet(key) 의 amrs · acs.map() 을 읽기만 한다 (sim 을 import 하지 않음). 플릿(도어트림 · 부속 부품)마다 하나씩 만든다 — 차체·통로선 색으로 구분.
 // 도어트림 플릿은 셀 GLB 의 메인 AMR(AMR_MAIN_JIG) 모델을 쓴다(setModel). 모델이 없으면 상자 차체 + 적재면까지 올린 상부 모듈.
 import * as THREE from 'three';
+import { RAIL, linkSegs, railPlan } from './rails.js';
 
 const BODY = Object.freeze({ l: 1.1, w: 0.78, h: 0.3, wheel: 0.1, clear: 0.06 });
-const ROAD = Object.freeze({ two: 2.5, one: 1.4, link: 1.3, line: 0.07, dash: 0.8, gap: 0.7, arrow: 3.5 });
 const LED = Object.freeze({ move: 0x4fb3ff, wait: 0xf5b74e, charge: 0x3ccf8e, low: 0xff5d5d, park: 0x6b7480 });
 const PATH_MAX = 40;
+const Y = Object.freeze({ road: 0.016, mark: 0.02, pad: 0.026 });
 
 export class FleetView {
   // fleet: state.fleet 키 · body: 차체 색 · lane: 통로 가장자리 선 색
-  constructor(scene, { fleet = 'trim', body = 0xdfe3e8, lane = 0xe8b923 } = {}) {
+  constructor(scene, { fleet = 'trim', body = 0xdfe3e8, lane = 0xe8b923, skipCells = [] } = {}) {
     this.scene = scene;
     this.key = fleet;
+    this.skipCells = new Set(skipCells);
     this.root = new THREE.Group();
     this.root.name = fleet === 'trim' ? 'fleet' : `fleet-${fleet}`;
     scene.add(this.root);
@@ -172,32 +174,47 @@ export class FleetView {
     it.line.material.opacity = a.id === this.followed ? 0.95 : 0.55;
   }
 
-  // ACS 지도를 바닥에 그린다. 루트 간선 = 통로 띠(양방향은 가운데 점선, 단방향은 화살표), 접속선 = 좁은 진입로,
-  // 셀 정차 칸(마지막 = 도크), 입구·출구 막대, 충전 자리 + 충전기, 교차 구역 원. 점검에 걸린 것은 빨갛게.
+  // ACS 지도를 바닥에 그린다. 루트 = 잘린 레일 + 교차 사각 패치(양방향 가운데 점선, 단방향 화살표),
+  // 접속선 = 좁은 진입로, 셀 정차 칸(마지막 = 도크), 입구·출구 막대, 충전 자리 + 충전기.
+  // 교차 구역(ACS 잠금)은 시뮬에만 있고 바닥에 원으로 그리지 않는다.
+  // 점검에 걸린 것은 빨갛게.
   drawMap(map) {
     this.clearMarks();
     if (!map) return;
-    const S = this.shared, M = this.marks;
-    for (const e of map.edges) {
-      const w = e.oneway ? ROAD.one : ROAD.two;
-      M.add(strip(e.pa, e.pb, w, e.bad ? S.badMat : S.roadMat, 0.004, w / 2));
-      for (const s of [-1, 1]) M.add(strip(e.pa, e.pb, ROAD.line, S.lineMat, 0.008, w / 2, s * (w / 2 - ROAD.line)));
-      if (e.oneway) arrows(M, e.pa, e.pb, S);
-      else dashes(M, e.pa, e.pb, S);
-    }
-    for (const n of map.nodes) {
-      const m = new THREE.Mesh(S.nodePad, S.roadMat);
-      m.rotation.x = -Math.PI / 2;
-      m.position.set(n.x, 0.005, n.z);
-      M.add(m);
-    }
+    const S = this.shared, M = this.marks, plan = railPlan(map);
+    const roads = plan.segs.filter((s) => !s.bad).map(planeOf);
+    const bads = plan.segs.filter((s) => s.bad).map(planeOf);
+    const links = [];
     for (const c of map.cells) {
-      for (const [p, q] of c.links) M.add(strip(p, q, ROAD.link, c.bad ? S.badMat : S.roadMat, 0.004, 0));
+      if (this.skipCells.has(c.id)) continue;
+      links.push(...linkSegs(c.links).map((s) => ({ ...planeOf(s), bad: c.bad })));
+    }
+    for (const h of map.homes) {
+      const s = h.link ? linkSegs([h.link])[0] : null;
+      if (s) links.push(planeOf(s));
+    }
+    roads.push(...links.filter((p) => p.l > 0 && !p.bad));
+    bads.push(...links.filter((p) => p.l > 0 && p.bad));
+    stampPlanes(M, roads, S.roadMat, Y.road);
+    stampPlanes(M, bads, S.badMat, Y.road);
+    const square = (j) => ({ x: j.x, z: j.z, heading: j.heading, w: 2 * j.r, l: 2 * j.r, side: 0 });
+    stampPlanes(M, plan.joints.filter((j) => !j.bad).map(square), S.roadMat, Y.road);
+    stampPlanes(M, plan.joints.filter((j) => j.bad).map(square), S.badMat, Y.road);
+    const lines = [];
+    for (const s of plan.segs) {
+      const side = s.w / 2 - RAIL.line / 2;
+      for (const d of [-1, 1]) lines.push({ ...planeOf(s), w: RAIL.line, side: d * side });
+    }
+    stampPlanes(M, lines, S.lineMat, Y.mark);
+    stampPlanes(M, plan.dashes, S.dashMat, Y.mark);
+    stampArrows(M, plan.arrows, S);
+    for (const c of map.cells) {
+      if (this.skipCells.has(c.id)) continue;
       c.stops.forEach((s, i) => {
         const dock = i === c.stops.length - 1;
         const pad = new THREE.Mesh(dock ? S.dockPad : S.queuePad, c.bad ? S.badMat : dock ? S.dockMat : S.queueMat);
         pad.rotation.set(-Math.PI / 2, s.heading, 0, 'YXZ');
-        pad.position.set(s.x, 0.012, s.z);
+        pad.position.set(s.x, Y.pad, s.z);
         M.add(pad);
       });
       const first = c.stops[0];
@@ -205,22 +222,14 @@ export class FleetView {
       if (c.exit) M.add(bar(c.exit, c.stops.at(-1)?.heading ?? 0, S.exitMat));
     }
     for (const h of map.homes) {
-      if (h.link) M.add(strip(h.link[0], h.link[1], ROAD.link, S.roadMat, 0.004, 0));
       const pad = new THREE.Mesh(S.parkPad, S.parkMat);
       pad.rotation.set(-Math.PI / 2, h.heading, 0, 'YXZ');
-      pad.position.set(h.x, 0.012, h.z);
+      pad.position.set(h.x, Y.pad, h.z);
       const charger = new THREE.Mesh(S.charger, S.chargerMat);
       charger.position.set(h.x + Math.sin(h.heading) * 0.9, 0.25, h.z + Math.cos(h.heading) * 0.9);
       charger.rotation.y = h.heading;
       charger.castShadow = true;
       M.add(pad, charger);
-    }
-    for (const z of map.zones) {
-      const ring = new THREE.Mesh(new THREE.RingGeometry(z.r - 0.06, z.r, 64), S.zoneMat);
-      ring.rotation.x = -Math.PI / 2;
-      ring.position.set(z.x, 0.009, z.z);
-      ring.userData.own = true;
-      M.add(ring);
     }
   }
 
@@ -243,42 +252,40 @@ export class FleetView {
   }
 }
 
-// a→b 를 따라 놓인 바닥 띠. ext = 양 끝 연장, side = 진행 방향 오른쪽(+) 으로 비킴.
-function strip(a, b, w, mat, y, ext = 0, side = 0) {
-  const dx = b.x - a.x, dz = b.z - a.z, L = Math.hypot(dx, dz) || 1e-3;
-  const ux = dx / L, uz = dz / L;
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, L + 2 * ext), mat);
-  m.userData.own = true;
-  m.rotation.set(-Math.PI / 2, Math.atan2(dx, dz), 0, 'YXZ');
-  m.position.set((a.x + b.x) / 2 - uz * side, y, (a.z + b.z) / 2 + ux * side);
-  return m;
+function planeOf(s) {
+  return { x: (s.a.x + s.b.x) / 2, z: (s.a.z + s.b.z) / 2, heading: s.heading, w: s.w, l: s.L, side: 0 };
+}
+
+function stampPlanes(group, items, mat, y) {
+  for (const it of items) {
+    if (!it || (it.l ?? it.w) <= 1e-4) continue;
+    const h = it.heading ?? 0, side = it.side ?? 0;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(it.w, it.l ?? it.w), mat);
+    m.userData.own = true;
+    m.renderOrder = 1;
+    m.rotation.set(-Math.PI / 2, h, 0, 'YXZ');
+    m.position.set(it.x - Math.cos(h) * side, y, it.z + Math.sin(h) * side);
+    group.add(m);
+  }
+}
+
+function stampArrows(group, marks, S) {
+  for (const a of marks) {
+    const m = new THREE.Mesh(S.arrow, S.dashMat);
+    m.renderOrder = 2;
+    m.rotation.set(-Math.PI / 2, a.heading, 0, 'YXZ');
+    m.position.set(a.x, Y.mark, a.z);
+    group.add(m);
+  }
 }
 
 // 진행 방향을 가로지르는 막대(입구·출구 표시)
 function bar(p, heading, mat) {
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 0.14), mat);
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 0.12), mat);
   m.userData.own = true;
   m.rotation.set(-Math.PI / 2, heading, 0, 'YXZ');
-  m.position.set(p.x, 0.013, p.z);
+  m.position.set(p.x, Y.pad, p.z);
   return m;
-}
-
-function dashes(group, a, b, S) {
-  const L = Math.hypot(b.x - a.x, b.z - a.z), step = ROAD.dash + ROAD.gap;
-  for (let t = ROAD.gap; t + ROAD.dash <= L - ROAD.gap; t += step) {
-    const k0 = t / L, k1 = (t + ROAD.dash) / L;
-    group.add(strip({ x: a.x + (b.x - a.x) * k0, z: a.z + (b.z - a.z) * k0 }, { x: a.x + (b.x - a.x) * k1, z: a.z + (b.z - a.z) * k1 }, ROAD.line, S.dashMat, 0.008));
-  }
-}
-
-function arrows(group, a, b, S) {
-  const L = Math.hypot(b.x - a.x, b.z - a.z), h = Math.atan2(b.x - a.x, b.z - a.z);
-  for (let t = ROAD.arrow / 2; t < L; t += ROAD.arrow) {
-    const m = new THREE.Mesh(S.arrow, S.dashMat);
-    m.rotation.set(-Math.PI / 2, h, 0, 'YXZ');
-    m.position.set(a.x + (b.x - a.x) * (t / L), 0.008, a.z + (b.z - a.z) * (t / L));
-    group.add(m);
-  }
 }
 
 function ledColor(a) {
@@ -314,13 +321,11 @@ function sharedParts(bodyColor, laneColor) {
     parkMat: new THREE.MeshBasicMaterial({ color: 0x3ccf8e, transparent: true, opacity: 0.22, depthWrite: false }),
     charger: rounded(0.6, 0.5, 0.25),
     chargerMat: new THREE.MeshStandardMaterial({ color: 0x2b3440, roughness: 0.6, emissive: 0x1d6b48, emissiveIntensity: 0.35 }),
-    roadMat: new THREE.MeshStandardMaterial({ color: 0x4a5560, roughness: 0.9 }),
-    lineMat: new THREE.MeshStandardMaterial({ color: laneColor, roughness: 0.7 }),
-    dashMat: new THREE.MeshBasicMaterial({ color: 0xf2f2f2, transparent: true, opacity: 0.75, depthWrite: false }),
+    roadMat: new THREE.MeshBasicMaterial({ color: 0x3d4650, depthWrite: false }),
+    lineMat: new THREE.MeshBasicMaterial({ color: laneColor, depthWrite: false }),
+    dashMat: new THREE.MeshBasicMaterial({ color: 0xf2f2f2, transparent: true, opacity: 0.7, depthWrite: false }),
     entryMat: new THREE.MeshBasicMaterial({ color: 0x3ccf8e, transparent: true, opacity: 0.85, depthWrite: false }),
     exitMat: new THREE.MeshBasicMaterial({ color: 0x4fb3ff, transparent: true, opacity: 0.85, depthWrite: false }),
-    zoneMat: new THREE.MeshBasicMaterial({ color: 0xf5b74e, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide }),
-    nodePad: new THREE.CircleGeometry(ROAD.two / 2, 32),
     arrow: (() => {
       const s = new THREE.Shape();
       // 바닥에 누이면(x −90°) 모양의 −y 가 진행 방향(+z 쪽)이 된다

@@ -17,16 +17,19 @@ export const FOOTPRINT = Object.freeze({
   SORT: Object.freeze({ w: 16.56, d: 9.45 }),
   OUT: Object.freeze({ w: 5.05, d: 5.41 }),
   PARTS: Object.freeze({ w: 6, d: 2 }),
+  STORE: Object.freeze({ w: 6, d: 2 }),
 });
 
 // 셀이 아닌 AMR 자리(GLB 없음, 절차 형상). OUT = 완료품 적재 구역(협동로봇 + 책장), PARTS = 부속 부품 창고. 자리·크기는 가정이다.
 // OUT 은 PRESS 발자국의 절반(5.05×5.41 m), SORT 서쪽(기본 −30, −2)에 따로 둔다. 예전 SORT 옆 5×3 통과형·PRESS 전체 크기는 쓰지 않는다.
 // PARTS 는 남쪽 통로의 PRESS 도크 구역과 SCREW 도크 구역 사이(접속 구역이 도크 구역과 합쳐지면 도크에서 다음 미션을 기다리는 차가 길을 막는다).
+// STORE = 도어트림 원재료 창고. PARTS 동쪽에 붙여 한 줄(같은 크기 · 남쪽 통로 도크). 부품 AMR 이 SORT:RAW 로 나른다.
 // 레이아웃 파일에 없으면 기본 자리를 붙인다(예전 파일도 그대로 읽힌다).
-export const SITES = Object.freeze(['OUT', 'PARTS']);
+export const SITES = Object.freeze(['OUT', 'PARTS', 'STORE']);
 export const DEFAULT_SITES = Object.freeze({
   OUT: Object.freeze({ x: -30, z: -2, rotY: 0 }),
   PARTS: Object.freeze({ x: 10, z: -14, rotY: 0 }),
+  STORE: Object.freeze({ x: 16, z: -14, rotY: 0 }),
 });
 
 // 가정 자리. 서→동 SORT · PRESS · SCREW 한 줄, 통로(+z)는 비운다.
@@ -141,7 +144,7 @@ export function normalizeLayout(raw) {
   }
   const doc = {
     version: LAYOUT_VERSION, snap, cells, sites,
-    amr: normalizeAmr(raw?.amr, [...IDS, 'OUT', 'SORT:RAW']),
+    amr: normalizeAmr(raw?.amr, [...IDS, 'OUT']),
     parts: normalizeAmr(raw?.parts ?? defaultPartsAmr(), PARTS_IDS, defaultPartsAmr()),
   };
   if (raw?.rev != null) doc.rev = raw.rev;

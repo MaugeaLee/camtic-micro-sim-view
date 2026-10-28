@@ -98,5 +98,13 @@ for (const id of ['PRESS', 'SCREW']) {
   check('사족 관절 이름(Body·Hip·Knee)', joints.every((n) => names.has(n)), joints.filter((n) => !names.has(n)).join(',') || 'ok');
 }
 
+{
+  const { json, errors } = readGlbFull(await readFile(`${dir}drone.glb`));
+  const names = new Set((json.nodes ?? []).map((n) => n.name));
+  const parts = ['Drone', 'Gimbal', 'Strobe', 'Rotor_0', 'Rotor_1', 'Rotor_2', 'Rotor_3'];
+  check('drone.glb 헤더', errors.length === 0);
+  check('드론 노드 이름(Rotor·Gimbal·Strobe)', parts.every((n) => names.has(n)), parts.filter((n) => !names.has(n)).join(',') || 'ok');
+}
+
 console.log(`  ${pass} pass, ${fail} fail`);
 process.exitCode = fail ? 1 : 0;
