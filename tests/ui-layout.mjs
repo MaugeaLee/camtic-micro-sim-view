@@ -19,6 +19,7 @@ check('독 숨기면 html.dock-closed', ui.includes("classList.toggle('dock-clos
 check('셀 패널 접으면 html.cell-closed', ui.includes("classList.toggle('cell-closed'"));
 check('셀 패널 접으면 Detail style.left', ui.includes("d.style.left = closed"));
 check('마크업 순서: 셀 패널 다음 Detail', html.indexOf('id="panelLeft"') < html.indexOf('id="detail"') && html.indexOf('id="detail"') < html.indexOf('id="footTools"'));
+check('Detail 위치 초기화 버튼', html.includes('id="btnRecall"') && html.includes('위치 초기화') && ui.includes('onRecall') && css.includes('#btnRecall'));
 
 console.log(`  ${pass} pass, ${fail} fail`);
 if (fail) process.exit(1);

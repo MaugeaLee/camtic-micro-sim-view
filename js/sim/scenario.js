@@ -206,6 +206,27 @@ export class Plant {
     return [...this.acs.amrs, ...(this.supply ? this.supply.acs.amrs : []), ...(this.jacks ? this.jacks.amrs : [])];
   }
 
+  acsOf(a) {
+    if (this.acs.amrs.includes(a)) return this.acs;
+    if (this.supply?.acs.amrs.includes(a)) return this.supply.acs;
+    if (this.jacks?.amrs.includes(a)) return this.jacks;
+    return null;
+  }
+
+  // 끼임 해소(가정): AMR 은 제 충전 자리, 견마는 순찰 출발, 드론은 이착륙장. 셀·셀 안 장비는 대상 아님.
+  recall(id) {
+    const a = this.allAmrs.find((x) => x.id === id);
+    if (a) {
+      const acs = this.acsOf(a);
+      return acs ? acs.recall(a) : false;
+    }
+    if (this.hound?.id === id) { this.hound.reset(); return true; }
+    if (this.inspector?.id === id) { this.inspector.reset(); return true; }
+    const d = this.drones?.drones.find((x) => x.id === id);
+    if (d) { d.recall(); return true; }
+    return false;
+  }
+
   // 셀 도크(마지막 정차 칸)를 셀 로컬로 — 리프트 셀은 리프트 밑 칸.
   placeDocks() {
     for (const [id, cw] of Object.entries(this.work)) {

@@ -131,6 +131,11 @@ const ui = new UI({
   onFleetSpeed: (fleet, x) => { state.setFleetSpeed(fleet, x); savePlant(); refreshUi(); },
   onFleetHalt: (fleet, on) => { state.setFleetHalt(fleet, on); savePlant(); refreshUi(); },
   onCctv: (act) => cctvAction(act),
+  onRecall: (id) => {
+    if (state.recall(id)) savePlant();
+    else state.log('warn', '위치 초기화 안 됨', { obs: `${id} 은 이동체가 아니거나 충전 자리가 없음` });
+    refreshUi();
+  },
 });
 
 ui.setCatalog({ durations: DURATIONS, events: EVENTS, faultWhy: FAULT_WHY, fleets: FLEETS, fleetLabel: FLEET_LABEL, fleetSpeeds: FLEET_SPEEDS, supply: SUPPLY, supplyMode: SUPPLY_MODE });
@@ -981,6 +986,7 @@ window.__viewer = {
   get state() { return state; }, get layout() { return layout; }, get admin() { return admin; },
   stage, field, view, fleetView, partsFleetView, jackFleetView, rigView, liftView, equipView, tags, partsView, outView, depotView, storeView, houndView, inspectView, droneView, rig, hub, ui, get place() { return place; }, get routeTool() { return routeTool; }, RENDER, start, loadAssets: loadCellAssets, applyLayout, setAdmin, resetPlant, savePlant,
   status: (id) => equipmentStatus(state, id),
+  recall: (id) => state.recall(id),
   liveCam: (id) => liveCamOf(state, id),
   trace,
 };

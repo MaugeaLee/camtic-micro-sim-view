@@ -1,7 +1,7 @@
 // 부품·키트 엔티티 등록부. 엔티티마다 소유자(holder)는 정확히 하나다. 옮김은 hold(e, 새 소유자, 예상 소유자)로만 한다. DOM·three 없음.
 // holder 종류(k): amr{id} · rack{cell,i} · slot{cell,i} · store{cell,i}(원재료 창고 선반) · human{cell}(창고 휴머노이드) · station{cell,st} · robot{cell,r} · gantry{cell,line} · line{cell,line,s}
 //   · stock{cell,line} · kit{kit,at:[dx,dz]} · tote{tote,at?}(상자 안 부품) · move{from,to,t0,dur,arc}(두 자리 사이 옮김 — 몸체 없는 이송)
-//   · amr{id,at:[dx,dz,dy]}(한 AMR 여러 칸) · xfer{cell,t}(이송기) · belt{cell,line}(컨베이어·레인 롤러 위, 여럿)
+//   · drop{cell,at}(창고 선반 칸·옮김 시작점, 배타 아님) · amr{id,at:[dx,dz,dy]}(한 AMR 여러 칸) · xfer{cell,t}(이송기) · belt{cell,line}(컨베이어·레인 롤러 위, 여럿)
 //   · lift{cell}(셀 작업대 리프트가 든 지그+도어트림)
 // 위치는 소유자가 정한다(scenario.js Plant.poseOf). 여기는 소유 관계와 위반만 다룬다.
 

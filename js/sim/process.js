@@ -72,7 +72,8 @@ export function validateProcess(doc, { cycle = null } = {}) {
       errors.push('OUT shelf {z, depth>0, width>0, decks[]}');
     }
   }
-  // 부속 부품 공급(부품 AMR): 라인마다 적재 팔레트 start 개(기본 0)로 시작, left ≤ reorder 면 토트 하나(qty 개) 요청. 창고 shelf 는 PARTS 자리 로컬.
+  // 부속 부품 공급(부품 AMR): 라인마다 적재 팔레트 start 개(기본 0)로 시작, left ≤ reorder 면 토트 하나(qty 개) 요청.
+  // 창고 bins 는 PARTS 선반 칸(자리 로컬). 칸마다 토트가 놓여 있고 출고하면 바로 채운다. shelf 는 bins 없을 때 한 칸.
   const U = doc.supply;
   if (U != null) {
     if (!Number.isInteger(U.qty) || U.qty < 1) errors.push('supply.qty는 1 이상 정수');
@@ -90,7 +91,7 @@ export function validateProcess(doc, { cycle = null } = {}) {
     if (!Number.isInteger(U.batch) || U.batch < 1 || U.batch > 4) errors.push('supply.batch는 1~4 정수(AMR 적재면 2×2칸)');
     if (!(U.top > 0)) errors.push('supply.top(부품 AMR 적재면 높이)은 양수');
     if (U.bins != null) {
-      if (!Array.isArray(U.bins) || !U.bins.length || U.bins.length > 4 || !U.bins.every(pt)) errors.push('supply.bins는 {x,y,z} 1~4개');
+      if (!Array.isArray(U.bins) || !U.bins.length || U.bins.length > 24 || !U.bins.every(pt)) errors.push('supply.bins는 {x,y,z} 1~24개(선반 진열 칸)');
     }
     errors.push(...validateHumanoid(U.humanoid, 'supply'));
   }

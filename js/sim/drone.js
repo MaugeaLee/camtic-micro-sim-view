@@ -50,12 +50,17 @@ export class Drone {
   }
 
   reset() {
-    this.x = this.pad.x; this.z = this.pad.z; this.y = 0; this.heading = Math.PI; this.v = 0; this.vy = 0;
+    this.recall();
     this.battery = 100 - this.idx * 20;    // 충전이 겹치지 않게 엇갈려 시작
-    this.mode = 'idle';                    // idle(패드) | fly(작업·순회) | work(검사·실사·중계) | return | charge
+    this.stats = { inspected: 0, ng: 0, relays: 0, counts: 0, mismatch: 0, flight: 0 };
+  }
+
+  // 끼임 해소: 이착륙장으로. 누적 검사 수는 유지.
+  recall() {
+    this.x = this.pad.x; this.z = this.pad.z; this.y = 0; this.heading = Math.PI; this.v = 0; this.vy = 0;
+    this.mode = 'idle';
     this.job = null; this.workT = 0; this.wp = 0;
     this.task = '이륙 대기';
-    this.stats = { inspected: 0, ng: 0, relays: 0, counts: 0, mismatch: 0, flight: 0 };
   }
 
   get flying() { return this.y > 0.3; }

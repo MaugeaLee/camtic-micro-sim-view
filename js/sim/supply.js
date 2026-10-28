@@ -1,6 +1,6 @@
 // 부속 부품 공급(가정). 도어트림 AMR 과 따로 도는 두 번째 ACS(자기 루트·충전 자리)가 두 구간을 맡는다:
 //   ① 창고 → SORT 투입: 라인 팔레트 남은 수가 reorder 이하인 라인마다 요청이 쌓이고, 부품 AMR 하나가 창고에 서면 휴머노이드가
-//      쌓인 요청만큼(최대 batch) 토트를 적재면에 올리고 SORT 투입 자리(SORT:IN)로 간다. 투입 이송기가 다 옮기면 다른 일로 간다.
+//      선반에 진열된 토트를 쌓인 요청만큼(최대 batch) 적재면에 올리고 SORT 투입 자리(SORT:IN)로 간다. 빈 칸은 바로 채운다.
 //   ② SORT 레인 → 라인: 컨베이어 바코드 스캔으로 토트의 목적 라인 → 레인(색)이 정해지면 그 레인 자리 픽업 미션을 건다. AMR 이 레인 자리에
 //      미리 와서 기다리다 내림 이송기가 내려 준 토트를 받아 그 라인 적재 팔레트 도크로 가 상자를 덤프한다.
 //      셀 직교이송이 상자를 롤러에 올리고, 롤러가 당기면 협동로봇이 상자에서 부품을 집는다(토트는 비울 때까지 유지).
@@ -15,6 +15,7 @@ import { toteColor } from './process.js';
 
 export const PARTS_SITE = 'PARTS';
 export const INFEED = 'SORT:IN';
+const sameAt = (a, b) => Math.abs(a[0] - b[0]) < 1e-6 && Math.abs(a[1] - b[1]) < 1e-6 && Math.abs(a[2] - b[2]) < 1e-6;
 
 // Admin 에서 옮긴 부품 AMR 도킹 자리 점검(경고만). 이송기는 한 축이라 축에서 벗어난 자리의 토트는 집지 못하고,
 // 라인 도크가 팔레트에서 멀면 하역 토트가 먼 거리를 옮겨진다. layout: 정규화된 레이아웃, P: 공정 정의.
@@ -57,6 +58,7 @@ export class Supply {
     this.slots = [[-0.27, 0, 0], [0.27, 0, 0], [-0.27, 0, h], [0.27, 0, h]].slice(0, S.batch);
     this.depot = new HumanoidWork(PARTS_SITE, humanoidDef(S.humanoid, { time: S.load }), plant.parts);
     this.bins = (S.bins?.length ? S.bins : [S.shelf]).map((p) => [p.x, p.y, p.z]);
+    this.stock = this.bins.map(() => null);  // 선반 칸마다 진열 토트. 집으면 같은 칸을 바로 채움.
     for (const id of plant.def.sinks) {
       const cw = plant.work[id];
       if (!cw?.lines) continue;
@@ -68,6 +70,64 @@ export class Supply {
       }
     }
     feed.onScan = (e, lane) => this.laneTrip(e, lane);
+    this.fillBins();
+  }
+
+  // 선반 칸에 놓인(집히기 전) 토트.
+  sitting(i) {
+    const e = this.stock[i], at = this.bins[i];
+    if (e && this.plant.parts.get(e.id) && e.holder.k === 'drop' && e.holder.cell === PARTS_SITE && sameAt(e.holder.at, at)) return e;
+    return null;
+  }
+
+  filled() {
+    let n = 0;
+    for (let i = 0; i < this.bins.length; i++) if (this.sitting(i)) n++;
+    return n;
+  }
+
+  addShelf(i) {
+    const S = this.S, P = this.plant, part = this.lines[i % Math.max(1, this.lines.length)]?.L.part;
+    return P.parts.add('tote', { k: 'drop', cell: PARTS_SITE, at: this.bins[i] }, {
+      size: S.tote.size, h: S.tote.size[1], color: toteColor(P.proc, { part }), part, n: S.qty,
+    });
+  }
+
+  // 빈 칸을 바로 채운다(가정 — 창고 밖 입고는 그리지 않음). 통로에는 두지 않는다.
+  fillBins() {
+    for (let i = 0; i < this.bins.length; i++) {
+      const e = this.sitting(i);
+      if (e) { this.stock[i] = e; continue; }
+      this.stock[i] = this.addShelf(i);
+    }
+  }
+
+  // 출고할 선반 토트. 같은 부품 칸을 먼저 쓰고, 없으면 아무 칸.
+  takeBin(x, used) {
+    const want = x.L.part, S = this.S, P = this.plant;
+    const tryAt = (pred) => {
+      for (let i = 0; i < this.bins.length; i++) {
+        if (used.has(i)) continue;
+        const e = this.sitting(i);
+        if (!e || e.dock) continue;
+        if (pred && !pred(e)) continue;
+        used.add(i);
+        e.part = x.L.part;
+        e.dock = x.dock;
+        e.n = S.qty;
+        e.color = toteColor(P.proc, { part: x.L.part, dock: x.dock });
+        return { e, from: this.bins[i] };
+      }
+      return null;
+    };
+    const hit = tryAt((e) => e.part === want) ?? tryAt(null);
+    if (hit) return hit;
+    const bin = this.bins[0];
+    const e = P.parts.add('tote', { k: 'drop', cell: PARTS_SITE, at: bin }, {
+      size: S.tote.size, h: S.tote.size[1], color: toteColor(P.proc, { part: x.L.part, dock: x.dock }),
+      part: x.L.part, dock: x.dock, n: S.qty,
+    });
+    return { e, from: bin };
   }
 
   // 레이아웃이 바뀌면 ACS 가 미션을 모두 거둔다(대기 줄 포함) — 분류 중인 토트도 치우고 요청부터 다시.
@@ -86,6 +146,7 @@ export class Supply {
     this.depot.step(h);
     this.dispatch();
     this.acs.step(h);
+    this.fillBins();
   }
 
   dispatch() {
@@ -133,12 +194,12 @@ export class Supply {
         if (!take.length) return false;
         this.picked += take.length;
         const load = S.load * (P.supplyHold?.('parts')?.mode === 'slow' ? SLOW : 1);
+        const used = new Set();
         m.totes = take.map((x, i) => {
-          const bin = this.bins[i % this.bins.length];
-          const e = P.parts.add('tote', { k: 'drop', cell: PARTS_SITE, at: bin }, { size: S.tote.size, h: S.tote.size[1], color: toteColor(P.proc, { part: x.L.part, dock: x.dock }), part: x.L.part, dock: x.dock, n: S.qty });
+          const { e, from } = this.takeBin(x, used);
           const to = { k: 'amr', id: a.id, at: this.slots[i] };
           const deck = amrDeckAt(P, PARTS_SITE, to);
-          return { e, x, to, from: bin, toAt: deck.at, toYaw: deck.yaw };
+          return { e, x, to, from, toAt: deck.at, toYaw: deck.yaw };
         });
         m.T = this.depot.offer(m.totes.map((t) => ({
           e: t.e, from: t.from, to: t.to, toAt: t.toAt, fromYaw: 0, toYaw: t.toYaw, time: load, label: `${PARTS_SITE} 출고`,
@@ -166,6 +227,7 @@ export class Supply {
           P.parts.remove(t.e);
           t.x.L.incoming = 0;
         }
+        this.fillBins();
       },
     };
     return m;
@@ -232,6 +294,8 @@ export class Supply {
       trips: this.trips,
       picked: this.picked,
       waiting: this.waiting.length,
+      shelf: this.filled(),
+      bins: this.bins.length,
       feed: this.feed.view(),
       lines: this.lines.map(({ cell, L, dock, lane }) => ({ cell, line: L.id, dock, lane: lane.id, part: L.part, left: L.left, incoming: L.incoming })),
     };

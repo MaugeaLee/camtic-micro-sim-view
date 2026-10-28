@@ -60,6 +60,16 @@ export class ViewerState {
 
   setLayout(doc) { this.plant?.setLayout(doc); }
 
+  // 이동체(AMR·견마·드론)를 도킹/출발 자리로. 셀·셀 안 장비는 false.
+  recall(id) {
+    const ok = !!this.plant?.recall(id);
+    if (ok) {
+      this.log('info', `${id} 위치 초기화`, { obs: '도킹·출발 자리로 · 미션·잠금 거둠 · 끼임 해소(가정)' });
+      this.emit('recall', { id });
+    }
+    return ok;
+  }
+
   // ── 운영자 주입(incidents.js). 지금 시뮬 시각에 기록하고, 켜고 끄기는 스텝이 시각으로 한다. ──
   get incidents() { return this.plant?.incidents ?? null; }
 

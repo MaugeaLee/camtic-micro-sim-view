@@ -12,8 +12,8 @@ const fmtTime = (t) => {
 const amrDot = (a) => (a.halt ? 'low' : a.battery < 30 ? 'low' : a.charging ? 'charge' : a.mode === 'park' && !a.steps.length ? '' : a.moving ? 'move' : 'wait');
 
 export class UI {
-  constructor({ onPlay, onSpeed, onSelect, onFollow, onScenario, onPlace, onDownload, onImport, onSave, onReset, onBuildMode, onDetailClose, onTrace, onTraceClose, onLabels, onInject, onClearIncident, onFleetSpeed, onFleetHalt, onCctv } = {}) {
-    this.cb = { onPlay, onSpeed, onSelect, onFollow, onScenario, onPlace, onDownload, onImport, onSave, onReset, onBuildMode, onDetailClose, onTrace, onTraceClose, onLabels, onInject, onClearIncident, onFleetSpeed, onFleetHalt, onCctv };
+  constructor({ onPlay, onSpeed, onSelect, onFollow, onScenario, onPlace, onDownload, onImport, onSave, onReset, onBuildMode, onDetailClose, onTrace, onTraceClose, onLabels, onInject, onClearIncident, onFleetSpeed, onFleetHalt, onCctv, onRecall } = {}) {
+    this.cb = { onPlay, onSpeed, onSelect, onFollow, onScenario, onPlace, onDownload, onImport, onSave, onReset, onBuildMode, onDetailClose, onTrace, onTraceClose, onLabels, onInject, onClearIncident, onFleetSpeed, onFleetHalt, onCctv, onRecall };
     this.lastLog = 0;
     this.liveOff = false;
     this.detail = { doc: null, tab: 'mon', hold: false };
@@ -321,6 +321,10 @@ export class UI {
     const D = (this.dt = { box: $('detail'), title: $('dtTitle'), state: $('dtState'), tabs: $('dtTabs'), sub: $('dtSub'), live: $('dtLiveWrap'), cap: $('dtLiveCap'), wait: $('dtLiveWait'), mon: $('dtMon'), json: $('dtJson'), pre: $('dtPre') });
     if (!D.box) return;
     $('dtClose')?.addEventListener('click', () => this.cb.onDetailClose?.());
+    $('btnRecall')?.addEventListener('click', () => {
+      const id = this.detail.doc?.id;
+      if (id) this.cb.onRecall?.(id);
+    });
     D.tabs.addEventListener('click', (e) => {
       const tab = e.target.dataset?.tab;
       if (!tab) return;
@@ -365,7 +369,13 @@ export class UI {
     const prev = this.detail.doc?.id;
     this.detail.doc = doc;
     D.box.hidden = !doc;
-    if (!doc) { this.detail.shown = null; this.drawLive(null); return; }
+    if (!doc) {
+      this.detail.shown = null;
+      this.drawLive(null);
+      const ops = $('dtOps');
+      if (ops) ops.hidden = true;
+      return;
+    }
     if (prev !== doc.id && this.detail.hold) {
       this.detail.hold = false;
       const b = D.json.querySelector('[data-act="hold"]');
@@ -383,6 +393,12 @@ export class UI {
     D.state.textContent = d.state;
     D.state.className = `st st-${String(d.state).toLowerCase()}`;
     D.sub.textContent = `${d.name} · ${KIND[d.kind] ?? d.kind} · 시뮬 ${fmtTime(d.t)}${this.detail.hold ? ' · 고정' : ''}`;
+    const ops = $('dtOps'), btn = $('btnRecall');
+    const movable = d.kind === 'amr' || d.kind === 'hound' || d.kind === 'drone';
+    if (ops) ops.hidden = !movable;
+    if (btn && movable) {
+      btn.title = d.kind === 'drone' ? '이착륙장으로 순간 이동(가정)' : d.kind === 'hound' ? '순찰 출발 자리로 순간 이동(가정)' : '충전 자리(도킹)로 순간 이동. 진행 중 미션·잠금은 거둠(가정)';
+    }
     this.drawLive(d);
     if (this.detail.tab === 'json') {
       const text = pretty(d);

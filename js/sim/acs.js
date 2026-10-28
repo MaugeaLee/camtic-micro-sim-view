@@ -286,6 +286,18 @@ export class Acs {
     a.ticket = null;
   }
 
+  // 끼임 해소(가정): 미션·잠금·교차 구역을 거두고 제 충전 자리(도킹)로 순간 이동. 레이아웃 재배치의 한 대 버전.
+  // 운휴(충전 자리 없음)는 그대로. 싣던 키트·토트는 미션 abort 가 처리한다.
+  recall(a) {
+    if (!a || a.off || !this.homes[a.idx]) return false;
+    this.abort(a);
+    for (const id of Object.keys(this.locks)) this.release(id, a);
+    for (const Z of this.zones) if (Z.holder === a) Z.holder = null;
+    this.onHome?.(a);
+    this.park(a);
+    return true;
+  }
+
   // ── 미션 ──
   // mission: { from, ready(), load(a) → 짐, dest(짐) → 셀 id, canDrop(id), drop(짐, id), abort(a),
   //            pickup?(a, id) / unload?(a, id) → 티켓 {released} — 셀이 다 받거나 내줬을 때 released (없으면 4초),

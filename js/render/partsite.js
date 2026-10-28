@@ -25,7 +25,7 @@ export class PartsSiteView {
     const edge = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(w, 0.001, d)), new THREE.LineBasicMaterial({ color: '#3fb6c9' }));
     edge.position.y = 0.006;
     this.root.add(floor, edge);
-    // 선반: 뒤쪽(로컬 −z) 3단. 칸 위 토트·통로 테이블은 휴머노이드와 겹쳐서 두지 않는다(토트는 엔티티).
+    // 선반: 뒤쪽(로컬 −z) 3단. 칸 위 토트는 Supply 엔티티가 그린다. 통로에는 고정 물체를 두지 않는다.
     const sw = w - 0.4, sz = -d / 2 + 0.3, levels = [0.35, 0.95, 1.55];
     for (const x of [-sw / 2, 0, sw / 2]) for (const z of [sz - 0.25, sz + 0.25]) { const p = box(0.06, 1.9, 0.06, steel); p.position.set(x, 0.95, z); this.root.add(p); }
     for (const y of levels) {

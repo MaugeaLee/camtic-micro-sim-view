@@ -460,12 +460,14 @@ for (const withRig of [false, true]) {
   const L = P.work.PRESS.lineOf.L01;
   check('라인 팔레트 시작 수 = supply.start(0) · 보이는 부품 없음', P.supply.lines.every((x) => x.L.left === (U.start ?? 0) && !x.L.stock && !x.L.items.length), P.supply.lines.map((x) => x.L.left).join(','));
   check('PRESS·SCREW 시작 키트 0 · 첫 움직임은 운송 AMR', P.units.PRESS.stock === 0 && P.units.SCREW.stock === 0 && !['PRESS', 'SCREW'].some((id) => P.work[id].lift.kit));
+  check('부품 창고 선반이 처음부터 칸마다 차 있음(3단 × 6)', U.bins.length === 18 && P.supply.filled() === U.bins.length, `${P.supply.filled()}/${U.bins.length}`);
   const path = [], fetchers = new Set(), lane = { amr: null, stop: null };
   const toteColors = new Map();
-  let step = null, beltStall = 0, maxBelt = 0, dumped = null, onRail = null, fromBox = null, fetchDeck = null;
+  let step = null, beltStall = 0, maxBelt = 0, dumped = null, onRail = null, fromBox = null, fetchDeck = null, minShelf = Infinity;
   for (let i = 0; i < 12000; i++) {
     const was = { left: L.left, incoming: L.incoming };
     s.step(0.1);
+    minShelf = Math.min(minShelf, P.supply.filled());
     const t = [...P.parts.items.values()].find((e) => e.type === 'tote' && e.dock === 'PRESS:L01');
     const H = t?.holder;
     const k = H ? (H.k === 'belt' ? `belt:${H.line}` : H.k === 'xfer' ? `xfer:${H.t}` : H.k === 'amr' ? `amr:${H.id}` : H.k) : null;
@@ -490,6 +492,7 @@ for (const withRig of [false, true]) {
   }
   const iB = path.indexOf('belt:main'), iL = path.indexOf('belt:B');
   const iA = path.findIndex((p) => p.startsWith('amr:P-AMR-'));
+  check('출고해도 선반 칸이 비지 않음(바로 채움)', minShelf === U.bins.length, `최소 ${minShelf}/${U.bins.length}`);
   check('창고에서 나온 토트 색 = 부품 역할(서로 다름)', toteColors.size >= 2 && new Set(toteColors.values()).size === toteColors.size, JSON.stringify(Object.fromEntries(toteColors)));
   check('PARTS 출고 AMR 위 상자가 역할마다 다른 색 · load.e 없음(파란 덮개 숨김)', fetchDeck && new Set(fetchDeck.colors).size >= 2, JSON.stringify(fetchDeck));
   check('토트 경로: 휴머노이드 → 부품 AMR → 투입 이송기 → 컨베이어 → 레인 B → 내림 이송기 → 레인 AMR',
@@ -504,6 +507,10 @@ for (const withRig of [false, true]) {
   check('supply.reorder ≥ qty 는 오류', validateProcess(bad).some((e) => e.includes('reorder')));
   const b2 = clone(doc); b2.supply.batch = 5;
   check('supply.batch 1–4 밖은 오류', validateProcess(b2).some((e) => e.includes('batch')));
+  const bBins = clone(doc); bBins.supply.bins = [];
+  check('supply.bins 비면 오류', validateProcess(bBins).some((e) => e.includes('bins')));
+  const bBins2 = clone(doc); bBins2.supply.bins = Array.from({ length: 25 }, () => ({ x: 0, y: 1, z: -0.7 }));
+  check('supply.bins 24 초과는 오류', validateProcess(bBins2).some((e) => e.includes('bins')));
   const b3 = clone(doc); b3.cells.SORT.feed.lanes[1].to.push('PRESS:L03');
   check('feed: 한 도크가 두 레인이면 오류', validateProcess(b3).some((e) => e.includes('PRESS:L03')), validateProcess(b3).join(' · '));
 }
