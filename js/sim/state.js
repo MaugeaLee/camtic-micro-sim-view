@@ -47,14 +47,14 @@ export class ViewerState {
     this.plant?.step(h, this);
   }
 
-  // 두 플릿(도어트림 · 부속 부품) AMR 모두 — 목록·추적·hub. 지도·차체 그리기는 fleet(key) 로 플릿마다.
+  // 세 플릿(도어트림 · 부속 부품 · 지개차) AMR 모두 — 목록·추적·hub. 지도·차체 그리기는 fleet(key) 로 플릿마다.
   get amrs() { return this.plant?.allAmrs ?? []; }
   // 셀 안 장비(로봇·직교이송·리프트·몸통). 셀 통째와 따로 고른다.
   get equip() { return listEquip(this); }
   equipOf(id) { return findEquip(this, id); }
   get acs() { return this.plant?.acs ?? null; }
   fleet(key) {
-    const acs = key === 'parts' ? this.plant?.supply?.acs ?? null : this.plant?.acs ?? null;
+    const acs = key === 'parts' ? this.plant?.supply?.acs ?? null : key === 'jack' ? this.plant?.jacks ?? null : this.plant?.acs ?? null;
     return { acs, amrs: acs?.amrs ?? [] };
   }
 

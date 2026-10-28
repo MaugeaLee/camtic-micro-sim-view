@@ -3,8 +3,8 @@
 // 기록 한 건 = { no, kind, type, target, at, end, why, mode?, value? }. at·end 는 시뮬 시각(end null = 해제 전까지).
 // 시각으로만 켜고 끄므로 공장 상태 복원(같은 스텝 재생)에서도 같은 시각에 같은 일이 난다 — 목록을 dump 에 같이 둔다.
 
-export const FLEETS = Object.freeze(['trim', 'parts']);
-export const FLEET_LABEL = Object.freeze({ trim: '메인 AMR(도어트림)', parts: '서브 AMR(부품)' });
+export const FLEETS = Object.freeze(['trim', 'parts', 'jack']);
+export const FLEET_LABEL = Object.freeze({ trim: '메인 AMR(도어트림)', parts: '서브 AMR(부품)', jack: '지개차 AMR(원재료)' });
 export const FLEET_SPEEDS = Object.freeze([0.5, 0.75, 1, 1.25]);
 export const DURATIONS = Object.freeze({ fault: [30, 60, 120, 300], supply: [120, 300, 900, 1800], event: [30, 60, 120, 300] });
 export const SLOW = 3;            // 공급 지연: 재보충·적재 시간 배율
@@ -35,7 +35,7 @@ export const EVENTS = Object.freeze({
 });
 
 const cellOf = (target) => String(target).split(':')[0];
-const fleetOf = (id) => (String(id).startsWith('P-AMR') ? 'parts' : 'trim');
+const fleetOf = (id) => (String(id).startsWith('F-AMR') ? 'jack' : String(id).startsWith('P-AMR') ? 'parts' : 'trim');
 const EPS = 1e-6;
 // 시뮬 스텝이 보는 구간: 기록한 시각 다음 스텝부터 끝 시각 스텝까지. 실시간 주입과 복원 재생이 같은 스텝에서 켜고 끄게 한다.
 const on = (x, t) => x.at < t - EPS && (x.end == null || t < x.end + EPS);

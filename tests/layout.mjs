@@ -93,11 +93,12 @@ check('스탬프에 AMR 경로 포함', layoutStamp(base) !== layoutStamp({ ...b
 
 // 부속 부품 AMR 루트(parts): 도어트림 루트(amr)와 따로. 창고 PARTS 자리 · 라인 도크 「셀:라인」(셀 로컬).
 {
-  check('기본: 부품 창고 자리 · 부품 루트 · 충전 자리 6 · 도크 8 + 창고 2(부품·원재료) + SORT 투입 + SORT 뒤쪽 원재료 하역', !!base.sites.PARTS && base.parts.homes.length === 6
-    && Object.keys(base.parts.cells).length === 12 && !!base.parts.cells.STORE && base.parts.cells['SORT:RAW']?.exit === null && !!base.parts.cells['PRESS:L01'] && !!base.parts.cells.PARTS
-    && base.parts.cells['SORT:IN']?.exit === null && base.parts.cells['SORT:IN'].stops.length === 1);
+  check('기본: 부품 창고 자리 · 부품 루트 · 충전 자리 6 · 도크 8 + 창고 + SORT 투입 · 원재료는 지개차', !!base.sites.PARTS && base.parts.homes.length === 6
+    && Object.keys(base.parts.cells).length === 10 && !base.parts.cells.STORE && !base.parts.cells['SORT:RAW'] && !!base.parts.cells['PRESS:L01'] && !!base.parts.cells.PARTS
+    && base.parts.cells['SORT:IN']?.exit === null && base.parts.cells['SORT:IN'].stops.length === 1
+    && Object.keys(base.jack.cells).length === 2 && !!base.jack.cells.STORE && base.jack.cells['SORT:RAW']?.exit === null && base.jack.homes.length === 2);
   check('SORT 도어트림 정지점 7: 대기 2 · 레인 A–D · 듀얼', base.amr.cells.SORT.stops.length === 7);
-  check('도어트림 루트에는 부품·창고 도크가 없다 · PRESS·SCREW 는 통과 리프트 셀(따로 반출 도크 없음) · SORT 뒤쪽 입고는 부품 루트로 옮김',
+  check('도어트림 루트에는 부품·창고 도크가 없다 · PRESS·SCREW 는 통과 리프트 셀(따로 반출 도크 없음) · SORT 뒤쪽 입고는 지개차 루트',
     !Object.keys(base.amr.cells).some((id) => id === 'PARTS' || id === 'STORE' || id === 'SORT:IN' || id === 'SORT:RAW' || id.includes(':L'))
     && !base.amr.cells['PRESS:OUT'] && !base.amr.cells['SCREW:OUT'] && !base.amr.route.nodes.some((n) => /^R\d/.test(n.id))
     && ['PRESS', 'SCREW'].every((id) => base.amr.cells[id].stops.length === 1 && !!base.amr.cells[id].exit));
@@ -106,16 +107,19 @@ check('스탬프에 AMR 경로 포함', layoutStamp(base) !== layoutStamp({ ...b
   const n = normalizeLayout(old);
   check('parts 없는 예전 파일도 통과 · 기본 부품 루트·창고 붙음', validateLayout(old).length === 0 && JSON.stringify(n.parts) === JSON.stringify(base.parts) && !!n.sites.PARTS);
   const noStore = JSON.parse(JSON.stringify(base));
-  delete noStore.sites.STORE; delete noStore.parts.cells.STORE;
+  delete noStore.sites.STORE; delete noStore.jack;
   const ns = normalizeLayout(noStore);
   const S = base.sites.STORE, cellsOk = ['SORT', 'PRESS', 'SCREW'].every((c) => !overlaps('STORE', S, c, base.cells[c]))
     && ['OUT', 'PARTS'].every((c) => !overlaps('STORE', S, c, base.sites[c]));
   const Pw = base.sites.PARTS, touch = Math.abs((S.x - FOOTPRINT.STORE.w / 2) - (Pw.x + FOOTPRINT.PARTS.w / 2)) < 1e-9 && S.z === Pw.z;
-  check('원재료 창고 STORE: 부품 창고 동쪽에 붙음(같은 줄 · 틈 0) · 셀·자리와 안 겹침 · 부품 루트 도크 · 예전 파일에도 붙음', !!S && touch && cellsOk && !!base.parts.cells.STORE
-    && validateLayout(noStore).length === 0 && ns.sites.STORE?.x === S.x && !!ns.parts.cells.STORE, JSON.stringify(S));
+  check('원재료 창고 STORE: 부품 창고 동쪽에 붙음(같은 줄 · 틈 0) · 셀·자리와 안 겹침 · 지개차 도크 · 예전 파일에도 붙음', !!S && touch && cellsOk && !!base.jack.cells.STORE
+    && validateLayout(noStore).length === 0 && ns.sites.STORE?.x === S.x && !!ns.jack.cells.STORE, JSON.stringify(S));
   const bad = structuredClone(base);
   bad.parts.route.edges.push({ a: 'Q0', b: 'NOPE' });
   check('부품 루트 오류는 「부품 AMR」 머리로', validateLayout(bad).some((e) => e.startsWith('부품 AMR') && e.includes('NOPE')), validateLayout(bad).join(' · '));
+  const badJack = structuredClone(base);
+  badJack.jack.route.edges.push({ a: 'Q0', b: 'NOPE' });
+  check('지개차 루트 오류는 「지개차 AMR」 머리로', validateLayout(badJack).some((e) => e.startsWith('지개차 AMR') && e.includes('NOPE')), validateLayout(badJack).join(' · '));
   const doc = JSON.parse(await (await import('node:fs/promises')).readFile(new URL('../src/process.default.json', import.meta.url), 'utf8'));
   const off = [];
   for (const [id, C] of Object.entries(doc.cells)) for (const L of C.lines ?? []) {

@@ -1,5 +1,5 @@
 // 시나리오: 시뮬 시간축으로 셀 상태(IDLE/BUSY/DOWN)를 구동하고, 운반은 ACS(acs.js)에 미션으로 넘긴다. DOM·three 없음.
-// 흐름 가정: STORE·PARTS 휴머노이드가 선반 물건을 부품 AMR 위에 올린다. 부품 AMR이 원재료 창고(STORE)의 도어트림 키트를 SORT 랙 뒤(SORT:RAW)에 하역하면 협동로봇이 랙에 올리고, 분류된 키트를 북쪽 양팔 도크에서 AMR에 실어 SCREW·PRESS 로 나른다.
+// 흐름 가정: STORE 휴머노이드가 선반 키트를 지개차 AMR 포크에 올린다. 지개차가 원재료 창고(STORE)의 도어트림+지그를 SORT 랙 뒤(SORT:RAW)에 하역하면 협동로봇이 랙에 올리고, 분류된 키트를 북쪽 양팔 도크에서 AMR에 실어 SCREW·PRESS 로 나른다. PARTS 휴머노이드는 토트를 부품 AMR 에 올린다.
 // 사이클·재고·고장 시각은 모두 가정값이다. 실측·확정 공정이 아니다. 기본 시나리오에는 고장이 없다.
 // 공정 정의(process.default.json)를 주면 키트(지그 + 도어트림)·부품이 엔티티(소유자 하나)가 된다.
 // 공정 순서 route(SORT → SCREW → PRESS → SCREW → OUT): 양팔이 지그째 메인 AMR MAIN 패널에 올림 → 셀 리프트 자리에 서면 클립이 지그를
@@ -13,9 +13,9 @@ import { Acs, shareCross } from './acs.js';
 import { Hound } from './hound.js';
 import { CellHealth, InspectHound } from './patrol.js';
 import { DRONE, DroneFleet } from './drone.js';
-import { AMR_HOMES_MAX, RAW_IN, STORE } from './amrdata.js';
+import { AMR_HOMES_MAX, JACK, RAW_IN, STORE } from './amrdata.js';
 import { CellWork } from './cellwork.js';
-import { placeOf, toLocal, toWorld } from './layout.js';
+import { jackLayout, placeOf, toLocal, toWorld } from './layout.js';
 import { OutWork } from './outwork.js';
 import { Parts } from './parts.js';
 import { SortFeed } from './sortfeed.js';
@@ -37,6 +37,7 @@ const base = {
   assumed: true,
   amr: 6,
   parts: 6,     // 부속 부품 AMR(도어트림 AMR 과 따로 — 창고→SORT 투입, SORT 레인→라인 두 구간)
+  jacks: JACK.count,  // 지개차 AMR: STORE → SORT:RAW 원재료(도어트림+지그)
   stage: 3,
   source: 'SORT',
   sinks: ['SCREW', 'PRESS'],
@@ -70,6 +71,7 @@ export function validateScenario(def) {
   if (!def || typeof def !== 'object') return ['시나리오가 객체 아님'];
   if (!(def.amr >= 0 && def.amr <= AMR_MAX)) errors.push(`amr은 0~${AMR_MAX}`);
   if (def.parts != null && !(def.parts >= 0 && def.parts <= AMR_MAX)) errors.push(`parts는 0~${AMR_MAX}`);
+  if (def.jacks != null && !(def.jacks >= 0 && def.jacks <= AMR_MAX)) errors.push(`jacks는 0~${AMR_MAX}`);
   if (def.drones != null && !(Number.isInteger(def.drones) && def.drones >= 0 && def.drones <= DRONE.pads.length)) errors.push(`drones는 0~${DRONE.pads.length}`);
   for (const id of [def.source, ...(def.sinks ?? [])]) if (!(def.cycle?.[id] > 0)) errors.push(`${id} cycle은 양수`);
   if (def.period && def.faults.some((f) => f.at + f.dur > def.period)) errors.push('고장 구간이 period 밖');
@@ -106,6 +108,7 @@ export class Plant {
     this.slots = {};
     this.rack = null;
     this.supply = null;         // 부속 부품 AMR 플릿(공정 정의에 supply 가 있을 때)
+    this.jacks = null;          // 지개차 AMR 플릿(STORE → SORT:RAW)
     this.inM = null;            // 도어트림 입고 미션(한 건)
     this.store = null;          // 도어트림 원재료 창고(공정 정의 SORT inbound.store 와 레이아웃 STORE 자리가 있을 때)
     this.route = null;          // 공정 순서(공정 정의 route) — 있으면 키트 엔티티 step 이 그 칸 번호
@@ -162,10 +165,17 @@ export class Plant {
     if (feed && this.work[S]?.feed === feed) {
       this.supply = new Supply(this, U, this.layout, this.def.parts, feed);
       this.bindFleet(this.supply.acs, 'parts');
-      this.linkCross();
     }
-    // 원재료 창고는 부품 창고 옆(남쪽 통로)이라 부품 AMR 이 나른다. 부품 플릿이 없으면 창고도 없다(아래 inCarrier).
-    const cA = this.supply?.acs;
+    const nJack = this.def.jacks ?? JACK.count;
+    if (nJack > 0 && this.layout.jack?.homes?.length) {
+      this.jacks = new Acs(Math.min(nJack, this.layout.jack.homes.length), jackLayout(this.layout), { prefix: 'F-AMR' });
+      this.jacks.note = (a, text) => this.host?.log('info', `${a.id} ${text}`);
+      for (const a of this.jacks.amrs) a.deck = JACK.deck;
+      this.bindFleet(this.jacks, 'jack');
+    }
+    this.linkCross();
+    // 원재료 창고는 지개차 플릿이 STORE·SORT:RAW 도크를 가질 때만 연다(아래 inCarrier).
+    const cA = this.jacks;
     if (this.rack && src.inbound?.store && cA?.cells[STORE] && cA.cells[RAW_IN] && placeOf(this.layout, STORE)) this.store = new Store(STORE, src.inbound.store, this, this.kitSpec);
     if (this.route) {
       const miss = this.route.slice(1, -1).filter((id) => !this.lifts.includes(id));
@@ -183,13 +193,18 @@ export class Plant {
   // 공급 차질(incidents.js SUPPLY 키). Store·Supply 가 읽는다.
   supplyHold(target) { return this.incidents.supply(target, this.time); }
 
-  // 두 플릿 루트가 만나는 교차로: 같은 구역 객체를 두 ACS 가 같이 잡는다.
+  // 플릿 루트가 만나는 교차로: 같은 구역 객체를 같이 잡는다. 세 플릿이면 두 쌍을 잇는다.
   linkCross() {
+    for (const F of [this.acs, this.supply?.acs, this.jacks].filter(Boolean)) F.clearShare();
     if (this.supply) shareCross(this.acs, this.supply.acs);
+    if (this.jacks && this.supply) shareCross(this.supply.acs, this.jacks);
+    else if (this.jacks) shareCross(this.acs, this.jacks);
   }
 
-  // 두 플릿 AMR 모두
-  get allAmrs() { return this.supply ? [...this.acs.amrs, ...this.supply.acs.amrs] : this.acs.amrs; }
+  // 세 플릿 AMR 모두
+  get allAmrs() {
+    return [...this.acs.amrs, ...(this.supply ? this.supply.acs.amrs : []), ...(this.jacks ? this.jacks.amrs : [])];
+  }
 
   // 셀 도크(마지막 정차 칸)를 셀 로컬로 — 리프트 셀은 리프트 밑 칸.
   placeDocks() {
@@ -211,6 +226,10 @@ export class Plant {
     for (const a of this.acs.amrs) a.keep = null;
     for (const e of this.parts.list()) if (e.type === 'jig' && e.holder.k === 'amr') this.parts.remove(e);
     this.supply?.setLayout(layout);
+    if (this.jacks) {
+      this.jacks.setLayout(jackLayout(layout));
+      for (const a of this.jacks.amrs) a.deck = JACK.deck;
+    }
     this.hound.bind(layout);
     this.hound.reset();
     this.inspector?.bind(layout);
@@ -236,6 +255,7 @@ export class Plant {
     this.faults(host.time, host);
     this.acs.scale = this.incidents.fleetScale('trim', this.time);
     if (this.supply) this.supply.acs.scale = this.incidents.fleetScale('parts', this.time);
+    if (this.jacks) this.jacks.scale = this.incidents.fleetScale('jack', this.time);
     this.runSource(h);
     for (const id of this.def.sinks) {
       const cw = this.work[id], u = this.units[id];
@@ -248,6 +268,7 @@ export class Plant {
     this.dispatch();
     this.acs.step(h);
     this.supply?.step(h);
+    this.jacks?.step(h);
     this.hound.step(h, this.allAmrs, host, this.layout);
     this.health.step(h, this.units);
     this.inspector?.step(h, this.allAmrs, host, this.layout);
@@ -389,11 +410,11 @@ export class Plant {
     sw?.step(h, !!u.down);
     if (u.down) { u.state = 'DOWN'; return; }
     const cap = this.rack ? Math.min(this.def.buffer, this.rack.items.length) : this.def.buffer;
-    // 공정 정의가 있으면 키트는 랙에 생기지 않는다 — 도어트림 AMR 이 랙 뒤(SORT:RAW)에 하역해야 협동로봇이 랙에 올린다.
+    // 공정 정의가 있으면 키트는 랙에 생기지 않는다 — 지개차 AMR 이 랙 뒤(SORT:RAW)에 하역해야 협동로봇이 랙에 올린다.
     if (this.proc && this.rack && sw) {
       const C = this.inCarrier;
       if (this.inM && !C?.queue.includes(this.inM) && !C?.amrs.some((a) => a.mission === this.inM)) this.inM = null;
-      if (C && this.rack.items.includes(null) && !this.inM && C.ok(u.id) && C.ok(RAW_IN) && (!this.store || C.ok(STORE))) this.inM = C.request(this.inMission());
+      if (C && this.rack.items.includes(null) && !this.inM && C.ok(RAW_IN) && (!this.store || C.ok(STORE))) this.inM = C.request(this.inMission());
       const raw = this.inM || C?.amrs.some((a) => a.mission?.raw);
       const busy = !!sw.op || raw;
       if (this.kits.length >= cap && !busy) { u.state = 'IDLE'; u.progress = 0; return; }
@@ -419,13 +440,13 @@ export class Plant {
     this.units[this.def.source].done++;
   }
 
-  // 입고 운반 ACS: 원재료 창고가 있으면 부품 플릿, 없으면(예전 공정 정의·예전 레이아웃) SORT:RAW 가 있는 도어트림 플릿. 둘 다 없으면 null.
+  // 입고 운반 ACS: 원재료 창고가 있으면 지개차 플릿, 없으면(예전 공정 정의·예전 레이아웃) SORT:RAW 가 있는 도어트림 플릿. 둘 다 없으면 null.
   get inCarrier() {
-    if (this.store) return this.supply.acs;
+    if (this.store) return this.jacks;
     return this.acs.cells[RAW_IN] ? this.acs : null;
   }
 
-  // 도어트림 입고: 원재료 창고(STORE) 도크에서 선반 키트를 싣고 SORT 랙 뒤(SORT:RAW)에 하역(부품 AMR). 적재는 북쪽 양팔 도크.
+  // 도어트림 입고: 원재료 창고(STORE) 도크에서 선반 키트를 싣고 SORT 랙 뒤(SORT:RAW)에 하역(지개차 AMR). 적재는 북쪽 양팔 도크.
   // 창고가 없으면 도어트림 AMR 이 충전 자리에서 싣는다(그때는 키트가 AMR 위에 생긴다).
   inMission() {
     const S = this.def.source, sw = this.work[S], W = this.store;
@@ -453,7 +474,7 @@ export class Plant {
       unload: (a) => {
         const e = a.load?.e;
         if (!e) return this.timer(1);
-        m.U = sw.unload(e, { k: 'amr', id: a.id }, toLocal(this.cellPose(S), a), (kit) => this.acceptIn(kit), a.heading);
+        m.U = sw.unload(e, { k: 'amr', id: a.id }, toLocal(this.cellPose(S), a), (kit) => this.acceptIn(kit), a.heading, a.deck);
         return m.U;
       },
       drop: (load) => {
@@ -728,6 +749,7 @@ export class Plant {
       wip: this.route ? this.wip() : null,
       acs: this.acs.summary(),
       supply: this.supply ? { delivered: this.supply.delivered, acs: this.supply.acs.summary() } : null,
+      jacks: this.jacks ? this.jacks.summary() : null,
       hound: this.hound.view(),
       inspector: this.inspector?.view() ?? null,
       drones: this.drones.view(),

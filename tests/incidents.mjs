@@ -114,7 +114,7 @@ check('통로 통제 = 두 플릿 전체 정지', all.every((x, i) => x.x === po
 run(d, 10);
 d.inject({ kind: 'event', type: 'floor', dur: 120 });
 run(d, 0.2);
-check('바닥 이상 = 두 플릿 감속', d.acs.scale === FLOOR_SCALE && d.plant.supply.acs.scale === FLOOR_SCALE);
+check('바닥 이상 = 세 플릿 감속', d.acs.scale === FLOOR_SCALE && d.plant.supply.acs.scale === FLOOR_SCALE && d.plant.jacks.scale === FLOOR_SCALE);
 run(d, 200);
 check('이벤트가 끝나면 원래 속도', d.acs.scale === 1 && d.cell('PRESS').state !== 'DOWN');
 

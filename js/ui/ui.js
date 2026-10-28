@@ -175,7 +175,7 @@ export class UI {
     return {
       cells: state.cells.filter((c) => P.units[c.id]).map((c) => ({ id: c.id, label: c.label })),
       equip: (state.equip ?? []).filter((e) => P.units[e.cell]),
-      amrs: state.amrs.filter((a) => !a.off).map((a) => ({ id: a.id, fleet: a.id.startsWith('P-') ? 'parts' : 'trim' })),
+      amrs: state.amrs.filter((a) => !a.off).map((a) => ({ id: a.id, fleet: a.id.startsWith('F-AMR') ? 'jack' : a.id.startsWith('P-') ? 'parts' : 'trim' })),
     };
   }
 
@@ -212,7 +212,7 @@ export class UI {
         const xs = T.amrs.filter((a) => a.fleet === f);
         return xs.length ? `<optgroup label="${label}">${xs.map((a) => opt(a.id, a.id, 'amr')).join('')}</optgroup>` : '';
       };
-      return `<span>대상</span><select name="target"><optgroup label="셀 전체">${T.cells.map((c) => opt(c.id, `${c.id} · ${c.label}`, 'cell')).join('')}</optgroup>${byCell}${amr('trim', '메인 AMR')}${amr('parts', '서브 AMR')}</select>
+      return `<span>대상</span><select name="target"><optgroup label="셀 전체">${T.cells.map((c) => opt(c.id, `${c.id} · ${c.label}`, 'cell')).join('')}</optgroup>${byCell}${amr('trim', '메인 AMR')}${amr('parts', '서브 AMR')}${amr('jack', '지개차 AMR')}</select>
         <span>사유</span><select name="why"></select>
         <span>시간</span>${this.durSeg('fault')}
         <button type="button" class="go" data-act="inject">고장 주입</button>`;
@@ -601,7 +601,7 @@ export class UI {
         const robots = robotRows(state);
         this.el.amrs.innerHTML = robots + amrs.map((a) => `
           <li data-amr="${a.id}" class="${a.id === state.followed ? 'on' : ''}">
-            <b><span class="dot ${amrDot(a)}"></span>${a.id.replace(/^AMR-/, '').replace(/^P-AMR-/, 'P')}</b>
+            <b><span class="dot ${amrDot(a)}"></span>${a.id.replace(/^AMR-/, '').replace(/^P-AMR-/, 'P').replace(/^F-AMR-/, 'F')}</b>
             <span class="task">${a.off ? '운휴(충전 자리 없음)' : a.halt ? `<i class="halt">정지</i> ${esc(a.halt.why)}` : `${a.load ? `<i>#${a.load.id}→${a.load.dest ?? '대기'}</i> ` : ''}${a.task}`}</span>
             <span class="batt ${a.battery < 30 ? 'low' : ''}"><span style="width:${a.battery.toFixed(0)}%"></span><em>${a.battery.toFixed(0)}%</em></span>
           </li>`).join('');

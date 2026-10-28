@@ -23,7 +23,7 @@ class Signals {
   }
 }
 
-// 문서를 만들 수 있는 장비 id: 셀 · AMR(두 플릿) · 견마·드론 · 셀 안 장비(로봇·직교이송·리프트)
+// 문서를 만들 수 있는 장비 id: 셀 · AMR(세 플릿) · 견마·드론 · 셀 안 장비(로봇·직교이송·리프트)
 export function equipmentIds(state) {
   const parts = (state.equip ?? []).map((e) => (typeof e === 'string' ? e : e.id));
   return [...state.cells.map((c) => c.id), ...state.amrs.map((a) => a.id), ...(state.plant?.robots ?? []).map((r) => r.id), ...parts];
@@ -323,6 +323,7 @@ function health(P, id, S) {
 
 // ── AMR ──
 function amrStatus(state, a) {
+  const jack = a.id.startsWith('F-AMR');
   const parts = a.id.startsWith('P-');
   const m = a.mission, T = a.ticket;
   const S = new Signals().in('상태')
@@ -351,7 +352,7 @@ function amrStatus(state, a) {
     .add('LOCK', '잡은 셀 잠금', 'string', a.inBranch ?? '')
     .add('WAIT', '진입 대기 셀', 'string', a.waitFor ?? '');
   return {
-    kind: 'amr', name: parts ? '부속 부품 AMR' : '도어트림 AMR', fleet: parts ? 'parts' : 'trim', state: a.off ? 'OFF' : a.halt ? (a.halt.kind === 'fault' ? 'DOWN' : 'HOLD') : a.mode.toUpperCase(),
+    kind: 'amr', name: jack ? '지개차 AMR' : parts ? '부속 부품 AMR' : '도어트림 AMR', fleet: jack ? 'jack' : parts ? 'parts' : 'trim', state: a.off ? 'OFF' : a.halt ? (a.halt.kind === 'fault' ? 'DOWN' : 'HOLD') : a.mode.toUpperCase(),
     fault: a.halt ? { why: a.halt.why, until: a.halt.end } : null,
     process: {
       label: a.task,

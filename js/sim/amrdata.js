@@ -13,7 +13,7 @@ export const LIFT_X = 0.32;
 const LIFT_BAY = Object.freeze({ entry: { x: -4.6, z: 0 }, stops: [{ x: LIFT_X, z: 0 }], exit: { x: 4.6, z: 0 } });
 export const LIFT_CELLS = Object.freeze(['PRESS', 'SCREW']);
 // 도어트림 원재료 입고: SORT 랙 남쪽(양팔 앞의 반대편). 북쪽 AMR_dual_pickup 은 분류 키트 적재만.
-// 원재료 창고(STORE, 부품 창고 동쪽) → SORT:RAW 는 부품 AMR 이 나른다(두 창고가 남쪽 통로에 붙어 있어서). 두 도크 모두 부품 루트에 있다.
+// 원재료 창고(STORE, 부품 창고 동쪽) → SORT:RAW 는 지개차 AMR 이 나른다(부품 AMR 은 토트만). 두 도크는 지개차 루트에 있다.
 export const RAW_IN = 'SORT:RAW';
 export const STORE = 'STORE';
 export const DEFAULT_AMR = Object.freeze({
@@ -82,17 +82,28 @@ export const DEFAULT_PARTS_AMR = Object.freeze({
   ],
   cells: {
     PARTS: { entry: { x: 0, z: 2.1 }, stops: [{ x: 0, z: 1.3 }], exit: null },
-    // 도어트림 원재료 창고: PARTS 와 같은 모양(남쪽 통로에서 북→남으로 들어가 선반 앞에 서고 후진 출차).
-    // 도크는 서쪽으로 1.5 m — 맞은편 SCREW:L01 도크(필드 x 16.1)와 접속점이 겹치지 않게.
-    STORE: { entry: { x: -1.5, z: 2.1 }, stops: [{ x: -1.5, z: 1.3 }], exit: null },
-    // SORT 랙 뒤 원재료 하역 칸(SORT 로컬): 남쪽 통로에서 북쪽으로 들어가 서고 후진 출차.
-    'SORT:RAW': { entry: { x: 6.36, z: -7.4 }, stops: [{ x: 6.36, z: -4.4 }], exit: null },
     // SORT 투입 자리(AMR_infeed): 서쪽에서 들어와 서고 후진으로 나온다. 투입 이송기가 적재면 토트를 컨베이어로 옮긴다.
     'SORT:IN': { entry: { x: -7.6, z: -1.81 }, stops: [{ x: -5.94, z: -1.81 }], exit: null },
     ...Object.fromEntries(Object.entries(LINE_X).flatMap(([c, L]) => Object.entries(L).map(([l, x]) => [`${c}:${l}`, lineDock(x, l === 'L03' || l === 'L04')]))),
   },
 });
 export const PARTS_IDS = Object.freeze(Object.keys(DEFAULT_PARTS_AMR.cells));
+
+// 지개차 AMR(원재료): 부품과 같은 남쪽 창고 통로. STORE → SORT:RAW 만.
+// 적재면 = 포크 윗면(가정, render/jack.js 와 같음).
+export const JACK = Object.freeze({ deck: 0.42, count: 2 });
+export const JACK_IDS = Object.freeze(['STORE', 'SORT:RAW']);
+export const DEFAULT_JACK_AMR = Object.freeze({
+  route: DEFAULT_PARTS_AMR.route,
+  // STORE 동쪽 · 부품 동쪽 충전 덩어리 서쪽. 피치 1.4 m.
+  homes: [
+    { x: 20.0, z: -13.4 }, { x: 21.4, z: -13.4 },
+  ],
+  cells: {
+    STORE: { entry: { x: -1.5, z: 2.1 }, stops: [{ x: -1.5, z: 1.3 }], exit: null },
+    'SORT:RAW': { entry: { x: 6.36, z: -7.4 }, stops: [{ x: 6.36, z: -4.4 }], exit: null },
+  },
+});
 
 const clone = (v) => JSON.parse(JSON.stringify(v));
 const pt = (p) => ({ x: R(p.x), z: R(p.z) });
@@ -101,6 +112,7 @@ const isPt = (p) => p && num(p.x) && num(p.z);
 
 export function defaultAmr() { return clone(DEFAULT_AMR); }
 export function defaultPartsAmr() { return clone(DEFAULT_PARTS_AMR); }
+export function defaultJackAmr() { return clone(DEFAULT_JACK_AMR); }
 
 export function normalizeAmr(raw, cellIds, d = DEFAULT_AMR) {
   const src = raw && typeof raw === 'object' ? raw : {};

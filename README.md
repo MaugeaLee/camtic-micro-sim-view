@@ -167,7 +167,7 @@ vendor/three/       Three r186 (레포에 포함)
 .env.example        배포용 키 목록 (복사해서 .env)
 server.mjs          npm start
 server/             정적 화이트리스트 + API
-src/render_asset/   PRESS.glb SCREW.glb SORT.glb quadruped.glb drone.glb doortrim.glb (견마·드론 출처: vendor/)
+src/render_asset/   PRESS.glb SCREW.glb SORT.glb quadruped.glb drone.glb doortrim.glb agv.glb (견마·드론 출처: vendor/ · 지개차는 js/render/jack.js)
 src/layout.default.json  기본 자리 + AMR 경로 (읽기 전용 fallback)
 src/process.default.json 셀 공정 정의(가정값): PRESS 스테이션 흐름·작업 지점·부품 치수, SORT 랙·SCREW 지그 칸
 data/layout.json         쓰는 자리 (LAYOUT_FILE, git 제외)

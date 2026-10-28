@@ -1,7 +1,7 @@
 // 셀 바닥 자리. DOM 없음. 좌표는 필드 원점 기준, 1 = 1 m. rotY 는 도(0·90·180·270).
 // 발자국은 GLB 바닥 AABB 가정(PRESS/SCREW ≈ 10.1×10.8 m, SORT ≈ 16.6×9.5 m). 실측 아님.
 import { CELLS } from './cells.js';
-import { PARTS_IDS, defaultAmr, defaultPartsAmr, normalizeAmr, validateAmr } from './amrdata.js';
+import { JACK_IDS, PARTS_IDS, defaultAmr, defaultJackAmr, defaultPartsAmr, normalizeAmr, validateAmr } from './amrdata.js';
 
 // field-def.js FIELD.size 와 같아야 한다. sim은 render를 import 하지 않는다.
 export const FIELD_SIZE = Object.freeze({ w: 76, d: 30 });
@@ -23,7 +23,7 @@ export const FOOTPRINT = Object.freeze({
 // 셀이 아닌 AMR 자리(GLB 없음, 절차 형상). OUT = 완료품 적재 구역(협동로봇 + 책장), PARTS = 부속 부품 창고. 자리·크기는 가정이다.
 // OUT 은 PRESS 발자국의 절반(5.05×5.41 m), SORT 서쪽(기본 −30, −2)에 따로 둔다. 예전 SORT 옆 5×3 통과형·PRESS 전체 크기는 쓰지 않는다.
 // PARTS 는 남쪽 통로의 PRESS 도크 구역과 SCREW 도크 구역 사이(접속 구역이 도크 구역과 합쳐지면 도크에서 다음 미션을 기다리는 차가 길을 막는다).
-// STORE = 도어트림 원재료 창고. PARTS 동쪽에 붙여 한 줄(같은 크기 · 남쪽 통로 도크). 부품 AMR 이 SORT:RAW 로 나른다.
+// STORE = 도어트림 원재료 창고. PARTS 동쪽에 붙여 한 줄(같은 크기 · 남쪽 통로 도크). 지개차 AMR 이 SORT:RAW 로 나른다.
 // 레이아웃 파일에 없으면 기본 자리를 붙인다(예전 파일도 그대로 읽힌다).
 export const SITES = Object.freeze(['OUT', 'PARTS', 'STORE']);
 export const DEFAULT_SITES = Object.freeze({
@@ -44,7 +44,7 @@ const IDS = CELLS.map((c) => c.id);
 const ROTS = new Set([0, 90, 180, 270]);
 
 export function defaultLayout() {
-  return { version: LAYOUT_VERSION, snap: SNAP, cells: { ...DEFAULT_POSES }, sites: { ...DEFAULT_SITES }, amr: defaultAmr(), parts: defaultPartsAmr() };
+  return { version: LAYOUT_VERSION, snap: SNAP, cells: { ...DEFAULT_POSES }, sites: { ...DEFAULT_SITES }, amr: defaultAmr(), parts: defaultPartsAmr(), jack: defaultJackAmr() };
 }
 
 export function snapCoord(v, snap = SNAP) {
@@ -91,6 +91,7 @@ export function validateLayout(raw, field = FIELD_SIZE) {
   if (!READS.has(raw.version)) errors.push(`version은 ${[...READS].join('·')}`);
   if (raw.amr != null) errors.push(...validateAmr(raw.amr, IDS, field.size ?? field));
   if (raw.parts != null) errors.push(...validateAmr(raw.parts, [], field.size ?? field).map((e) => `부품 AMR ${e}`));
+  if (raw.jack != null) errors.push(...validateAmr(raw.jack, [], field.size ?? field).map((e) => `지개차 AMR ${e}`));
   if (raw.sites != null) {
     if (typeof raw.sites !== 'object') errors.push('sites가 객체 아님');
     else {
@@ -146,6 +147,7 @@ export function normalizeLayout(raw) {
     version: LAYOUT_VERSION, snap, cells, sites,
     amr: normalizeAmr(raw?.amr, [...IDS, 'OUT']),
     parts: normalizeAmr(raw?.parts ?? defaultPartsAmr(), PARTS_IDS, defaultPartsAmr()),
+    jack: normalizeAmr(raw?.jack ?? defaultJackAmr(), JACK_IDS, defaultJackAmr()),
   };
   if (raw?.rev != null) doc.rev = raw.rev;
   return doc;
@@ -232,7 +234,7 @@ export function moveItem(doc, id, pose) {
 }
 
 export function layoutStamp(doc) {
-  return JSON.stringify({ rev: doc.rev ?? null, cells: doc.cells, sites: doc.sites ?? null, amr: doc.amr ?? null, parts: doc.parts ?? null });
+  return JSON.stringify({ rev: doc.rev ?? null, cells: doc.cells, sites: doc.sites ?? null, amr: doc.amr ?? null, parts: doc.parts ?? null, jack: doc.jack ?? null });
 }
 
 // 셀·자리 pose(셀이 먼저). 부품 도크 id 「셀:라인」은 그 셀 pose(지점은 셀 로컬).
@@ -244,6 +246,9 @@ export const partsLayout = (doc) => ({
   ...doc,
   amr: doc.amr?.cells?.SORT ? { ...doc.parts, cells: { ...doc.parts.cells, SORT: doc.amr.cells.SORT } } : doc.parts,
 });
+
+// 지개차 AMR 루트: STORE · SORT:RAW 도크만(부품 통로는 같이 씀, 레인·라인 도크는 없음).
+export const jackLayout = (doc) => ({ ...doc, amr: doc.jack });
 
 // 셀 로컬 ↔ 필드 좌표. three Object3D rotation.y = rotY(도) 와 같은 회전.
 export function toWorld(pose, p) {

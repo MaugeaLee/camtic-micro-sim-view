@@ -31,7 +31,7 @@ console.log('monitor');
   const s = new ViewerState({ quiet: true, scenario: 'supply', process: doc });
   const ids = equipmentIds(s);
   const parts = s.equip ?? [];
-  check('장비 목록 = 셀 + AMR 두 플릿 + 견마·드론 + 셀 장비', ids.length === s.cells.length + s.amrs.length + s.plant.robots.length + parts.length && ids.includes('HOUND-02') && ids.includes('P-AMR-01') && ids.includes('PRESS:R6'), `n=${ids.length}`);
+  check('장비 목록 = 셀 + AMR 세 플릿 + 견마·드론 + 셀 장비', ids.length === s.cells.length + s.amrs.length + s.plant.robots.length + parts.length && ids.includes('HOUND-02') && ids.includes('P-AMR-01') && ids.includes('F-AMR-01') && ids.includes('PRESS:R6'), `n=${ids.length}`);
   check('없는 id 는 null', equipmentStatus(s, 'NOPE') === null && equipmentStatus(s, null) === null);
 
   const first = Object.fromEntries(ids.map((id) => [id, equipmentStatus(s, id).signals.map((x) => x.id).join(',')]));

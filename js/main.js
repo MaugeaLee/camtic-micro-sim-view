@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { MAX_STEP, NO_SERVER, bootClock } from './core/env.js';
 import { runtime, assetUrl, apiPath, processUrl } from './core/runtime.js';
 import { CELLS } from './sim/cells.js';
-import { FOOTPRINT, SITES, SITE_SPUR, canPlace, defaultLayout, extent, layoutStamp, normalizeLayout, partsLayout, placeItem, placeOf, poseOf, toLocal, toWorld, translateSpur, moveSpurEnd, rotateSpur, validateLayout } from './sim/layout.js';
+import { FOOTPRINT, SITES, SITE_SPUR, canPlace, defaultLayout, extent, jackLayout, layoutStamp, normalizeLayout, partsLayout, placeItem, placeOf, poseOf, toLocal, toWorld, translateSpur, moveSpurEnd, rotateSpur, validateLayout } from './sim/layout.js';
 import { ViewerState } from './sim/state.js';
 import { findEquip, labelEquip } from './sim/equip.js';
 import { AMR_MAX, DEFAULT_SCENARIO, SCENARIOS } from './sim/scenario.js';
@@ -79,6 +79,9 @@ const view = new CellView(stage.scene);
 const fleetView = new FleetView(stage.scene);
 // 부속 부품 AMR: 노란 차체 · 청록 통로선(도어트림 AMR 흰 차체 · 노란 통로선과 구분)
 const partsFleetView = new FleetView(stage.scene, { fleet: 'parts', body: 0xf2c14e, lane: 0x3fb6c9, skipCells: ['SORT'] });
+// 지개차 AMR: 절차 메시(파란 구동부·포크) · 부품 통로 재사용이라 도크·충전 자리만 그림
+const jackFleetView = new FleetView(stage.scene, { fleet: 'jack', shape: 'jack', mapMode: 'docks', body: 0x3aa4d6, lane: 0x3aa4d6 });
+const fleetViews = () => [fleetView, partsFleetView, jackFleetView];
 const rigView = new RigView();
 const partsView = new PartsView(stage.scene);
 const outView = new OutSiteView(stage.scene);
@@ -243,7 +246,7 @@ function restoreView() {
 
 function focusTarget(f) {
   if (!f) return null;
-  if (f.kind === 'amr') return fleetView.focusOf(f.id, state) ?? partsFleetView.focusOf(f.id, state);
+  if (f.kind === 'amr') return fleetView.focusOf(f.id, state) ?? partsFleetView.focusOf(f.id, state) ?? jackFleetView.focusOf(f.id, state);
   if (f.kind === 'cell') return view.focusOf(f.id);
   const p = placeOf(layout, f.id);
   if (!p) return null;
@@ -265,7 +268,7 @@ function aimTrace() {
 ui.setScenarios([{ key: '', label: '시나리오 없음' }, ...Object.entries(SCENARIOS).map(([key, s]) => ({ key, label: s.label }))], scenarioKey);
 
 const picker = new Picker(stage, [
-  { meshes: () => [...fleetView.pickables(), ...partsFleetView.pickables(), ...houndView.pickables(), ...inspectView.pickables(), ...droneView.pickables()], key: 'amrId' },
+  { meshes: () => [...fleetView.pickables(), ...partsFleetView.pickables(), ...jackFleetView.pickables(), ...houndView.pickables(), ...inspectView.pickables(), ...droneView.pickables()], key: 'amrId' },
   { meshes: () => equipView.pickables(), key: 'partId' },
   { meshes: () => view.pickables(), key: 'cellId' },
 ], (hit) => {
@@ -319,6 +322,7 @@ function start() {
   fleetView.setup(state);
   partsFleetView.setTop(processDoc?.supply?.top ?? null);
   partsFleetView.setup(state);
+  jackFleetView.setup(state);
   showStaticMap();
   rig.follow(null);
   camKit = false;
@@ -331,8 +335,8 @@ function start() {
   const rt = runtime();
   state.log('info', '뷰어 시작', { obs: `셀 ${state.cells.length}개 · 서버 ${NO_SERVER ? '없음' : (rt ? `${rt.host}:${rt.port}` : '설정 없음')}` });
   if (state.plant) {
-    const trim = state.fleet('trim').amrs.length, sub = state.fleet('parts').amrs.length;
-    state.log('info', `시나리오: ${SCENARIOS[scenarioKey].label}`, { obs: `ACS 관제 도어트림 AMR ${trim}대${sub ? ` · 부속 부품 AMR ${sub}대(따로 루트)` : ''} · 사이클 시간은 가정값` });
+    const trim = state.fleet('trim').amrs.length, sub = state.fleet('parts').amrs.length, jack = state.fleet('jack').amrs.length;
+    state.log('info', `시나리오: ${SCENARIOS[scenarioKey].label}`, { obs: `ACS 관제 도어트림 AMR ${trim}대${sub ? ` · 부속 부품 AMR ${sub}대(따로 루트)` : ''}${jack ? ` · 지개차 AMR ${jack}대(STORE→SORT)` : ''} · 사이클 시간은 가정값` });
     if (processDoc) state.log('info', '셀 공정 정의 적용(가정)', { obs: `키트·부품 엔티티 · ${Object.keys(state.plant.work).join('·') || '없음'} 셀 안 공정` });
   }
   logRouteIssues();
@@ -354,7 +358,7 @@ function start() {
 function remountLive() {
   if (!live) return;
   live.clearMounts();
-  for (const fv of [fleetView, partsFleetView]) {
+  for (const fv of fleetViews()) {
     for (const [id, it] of fv.items) if (it.cam) live.mount(id, it.cam);
   }
   if (houndView.lens) live.mount(houndView.id, houndView.lens);
@@ -386,10 +390,11 @@ function showStaticMap() {
   if (state?.plant) return;
   fleetView.showMap(routeOps.mapOf(layout));
   partsFleetView.showMap(layout.parts ? routeOps.mapOf(partsLayout(layout)) : null);
+  jackFleetView.showMap(layout.jack ? routeOps.mapOf(jackLayout(layout)) : null);
 }
 
 function logRouteIssues() {
-  const issues = [...routeGeo(layout).check.issues, ...routeGeo(partsLayout(layout)).check.issues.map((t) => `부품 AMR ${t}`), ...dockIssues(layout, processDoc)];
+  const issues = [...routeGeo(layout).check.issues, ...routeGeo(partsLayout(layout)).check.issues.map((t) => `부품 AMR ${t}`), ...(layout.jack ? routeGeo(jackLayout(layout)).check.issues.map((t) => `지개차 AMR ${t}`) : []), ...dockIssues(layout, processDoc)];
   if (issues.length) state.log('warn', `AMR 경로 점검 ${issues.length}건`, { obs: issues.slice(0, 4).join(' · ') });
 }
 
@@ -484,7 +489,7 @@ function tagSpecs() {
     if (a.off) continue;
     const cap = amrTag(a);
     if (!cap) continue;
-    const y = String(a.id).startsWith('P-AMR') ? 1.75 : 1.55;
+    const y = String(a.id).startsWith('P-AMR') ? 1.75 : String(a.id).startsWith('F-AMR') ? 1.1 : 1.55;
     out.push({ id: a.id, x: a.x, y, z: a.z, ...cap, selected: a.id === followed, scale: 2.2 });
   }
   const robots = [plant?.hound?.view(), plant?.inspector?.view(), ...(plant?.drones?.view().drones ?? [])].filter(Boolean);
@@ -542,7 +547,7 @@ function focusSelection(ev) {
   if (ev.type === 'follow') {
     if (camKit && !ev.id) return;
     if (!ev.id) { rig.follow(null); return; }
-    const at = () => fleetView.focusOf(ev.id, state) ?? partsFleetView.focusOf(ev.id, state) ?? houndView.focusOf(ev.id, state.plant?.hound?.view())
+    const at = () => fleetView.focusOf(ev.id, state) ?? partsFleetView.focusOf(ev.id, state) ?? jackFleetView.focusOf(ev.id, state) ?? houndView.focusOf(ev.id, state.plant?.hound?.view())
       ?? inspectView.focusOf(ev.id, state.plant?.inspector?.view()) ?? droneView.focusOf(ev.id, state.plant?.drones?.view().drones)
       ?? equipView.focusOf(ev.id);
     const now = at();
@@ -807,6 +812,7 @@ function previewPlace(doc) {
   if (!plant) {
     fleetView.showMap(routeOps.mapOf(doc));
     partsFleetView.showMap(doc.parts ? routeOps.mapOf(partsLayout(doc)) : null);
+    jackFleetView.showMap(doc.jack ? routeOps.mapOf(jackLayout(doc)) : null);
   }
 }
 
@@ -882,8 +888,7 @@ function frame() {
   hub.tick(state);
   const events = state.drainEvents();
   view.update(rdt, state, events);
-  fleetView.update(rdt, state, events);
-  partsFleetView.update(rdt, state, events);
+  for (const fv of fleetViews()) fv.update(rdt, state, events);
   drawWork(rdt);
   equipView.mark(state.followed);
   tags.sync(tagSpecs());
@@ -916,8 +921,7 @@ if (AUTOLOAD) await loadCellAssets();
 if (plantGate.ok && applyPlant(plantGate.doc)) {
   const ev = state.drainEvents();
   view.update(0, state, ev);
-  fleetView.update(0, state, ev);
-  partsFleetView.update(0, state, ev);
+  for (const fv of fleetViews()) fv.update(0, state, ev);
   drawWork();
   refreshUi();
 } else if (savedPlant && plantGate.why) state.log('info', '공장 상태 새로 시작', { obs: plantGate.why });
@@ -949,8 +953,7 @@ if (cam.length === 6 && cam.every(Number.isFinite)) {
 if (warp > 0 || focusId) {
   const events = state.drainEvents();
   view.update(0, state, events);
-  fleetView.update(0, state, events);
-  partsFleetView.update(0, state, events);
+  for (const fv of fleetViews()) fv.update(0, state, events);
   drawWork();
   for (const ev of events) focusSelection(ev);
   if (trace.mode === 'run' && !focusId && cam.length !== 6) aimTrace();
@@ -976,7 +979,7 @@ frame();
 // 개발용 핸들. 콘솔에서 __viewer.loadAssets() 등.
 window.__viewer = {
   get state() { return state; }, get layout() { return layout; }, get admin() { return admin; },
-  stage, field, view, fleetView, partsFleetView, rigView, liftView, equipView, tags, partsView, outView, depotView, storeView, houndView, inspectView, droneView, rig, hub, ui, get place() { return place; }, get routeTool() { return routeTool; }, RENDER, start, loadAssets: loadCellAssets, applyLayout, setAdmin, resetPlant, savePlant,
+  stage, field, view, fleetView, partsFleetView, jackFleetView, rigView, liftView, equipView, tags, partsView, outView, depotView, storeView, houndView, inspectView, droneView, rig, hub, ui, get place() { return place; }, get routeTool() { return routeTool; }, RENDER, start, loadAssets: loadCellAssets, applyLayout, setAdmin, resetPlant, savePlant,
   status: (id) => equipmentStatus(state, id),
   liveCam: (id) => liveCamOf(state, id),
   trace,

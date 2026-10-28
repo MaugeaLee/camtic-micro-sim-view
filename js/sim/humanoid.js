@@ -94,7 +94,7 @@ export class HumanoidWork {
 
   homeK() {
     const s = this.spec;
-    return [s.base.x, s.height * 0.78, s.base.z + 0.28];
+    return [s.base.x, s.height * 0.52, s.base.z + 0.14];
   }
 
   tcpOf(at, e) { return [at[0], at[1] + (e?.h ?? 0) * (1 - this.grip), at[2]]; }

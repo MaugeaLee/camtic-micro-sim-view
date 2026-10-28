@@ -1,5 +1,5 @@
-// 도어트림 원재료 창고(STORE, 가정 — 부품 창고 동쪽): 선반 칸마다 지그째 키트 엔티티. 입고 부품 AMR 이 도크에 서면
-// 휴머노이드가 한 칸을 집어 적재면에 올리고, 빈 칸은 입고 팔레트(receive)에서 restock 초마다 한 칸씩 채운다.
+// 도어트림 원재료 창고(STORE, 가정 — 부품 창고 동쪽): 선반 칸마다 지그째 키트 엔티티. 입고 지개차 AMR 이 도크에 서면
+// 휴머노이드가 한 칸을 집어 지개차 포크에 올리고, 빈 칸은 입고 팔레트(receive)에서 restock 초마다 한 칸씩 채운다.
 // 창고 밖 물류(트럭·지게차)는 가정이고 그리지 않는다. 키트는 칸·팔레트 → 휴머노이드 → AMR — AMR·랙 위에서 생기지 않는다. DOM·three 없음.
 import { SLOW } from './incidents.js';
 import { HumanoidWork, amrDeckAt, humanoidDef } from './humanoid.js';

@@ -120,12 +120,12 @@ export class SortWork {
 
   // ── AMR 하역(입고): 적재면 키트를 집어 빈 랙 칸에 놓음. 든 뒤(PICK.lift) released → AMR 출발. ──
   // from: 지금 소유자(AMR), at: AMR 위치, onOk(kit): 랙에 놓은 뒤(Plant 가 kits 에 넣음)
-  unload(kit, from, at, onOk, heading) {
+  unload(kit, from, at, onOk, heading, deck) {
     if (this.busy()) return false;
     const i = this.rack.items.indexOf(null);
     if (i < 0) return { released: true };
     this.rack.items[i] = kit;
-    this.ticket = { kind: 'unload', kit, from, at: [at.x, at.z], heading, slot: i, onOk, started: false, gripped: false, released: false, cancel: false };
+    this.ticket = { kind: 'unload', kit, from, at: [at.x, at.z], heading, deck, slot: i, onOk, started: false, gripped: false, released: false, cancel: false };
     return this.ticket;
   }
 
@@ -180,7 +180,7 @@ export class SortWork {
     T.started = true;
     const g = this.kitH * (1 - this.grip), c = this.L.clear;
     const P1 = this.rackPt(i); P1[1] += g;
-    const P0 = [T.at[0], this.L.deck + g, T.at[1]];
+    const P0 = [T.at[0], (T.deck ?? this.L.deck) + g, T.at[1]];
     const s0 = this.slideFor(P0), s1 = this.slideFor(P1);
     const p0 = [P0[0] - this.geo.axis[0] * s0, 0, P0[2] - this.geo.axis[2] * s0];
     const w0 = angleTo(this.front, [p0[0] - this.geo.o[0], 0, p0[2] - this.geo.o[2]]);

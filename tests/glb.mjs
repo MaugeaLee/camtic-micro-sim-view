@@ -106,5 +106,15 @@ for (const id of ['PRESS', 'SCREW']) {
   check('드론 노드 이름(Rotor·Gimbal·Strobe)', parts.every((n) => names.has(n)), parts.filter((n) => !names.has(n)).join(',') || 'ok');
 }
 
+{
+  const { json, errors } = readGlbFull(await readFile(`${dir}agv.glb`));
+  const names = new Set((json.nodes ?? []).map((n) => n.name));
+  const mats = new Set((json.materials ?? []).map((m) => m.name));
+  const parts = ['AGV', 'Deck', 'Lidar'];
+  check('agv.glb 헤더', errors.length === 0);
+  check('참조 AGV 노드(Deck·Lidar) · LED 재질(지개차 미사용)', parts.every((n) => names.has(n)) && mats.has('LED'),
+    parts.filter((n) => !names.has(n)).join(',') || 'ok');
+}
+
 console.log(`  ${pass} pass, ${fail} fail`);
 process.exitCode = fail ? 1 : 0;

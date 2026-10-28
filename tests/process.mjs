@@ -299,9 +299,9 @@ for (const withRig of [false, true]) {
 {
   const s = new ViewerState({ scenario: 'supply', quiet: true, process: doc });
   const P = s.plant, W = P.store, D = doc.cells.SORT.inbound.store;
-  const dock = toWorld(placeOf(defaultLayout(), 'STORE'), defaultLayout().parts.cells.STORE.stops.at(-1));
-  check('창고: 선반 칸 수만큼 키트가 칸 위에서 시작 · STORE·SORT:RAW 도크는 부품 ACS 에만', !!W && W.ready === D.slots.length && !!P.supply.acs.cells.STORE
-    && !!P.supply.acs.cells['SORT:RAW'] && !P.acs.cells.STORE && !P.acs.cells['SORT:RAW'] && P.inCarrier === P.supply.acs
+  const dock = toWorld(placeOf(defaultLayout(), 'STORE'), defaultLayout().jack.cells.STORE.stops.at(-1));
+  check('창고: 선반 칸 수만큼 키트가 칸 위에서 시작 · STORE·SORT:RAW 도크는 지개차 ACS 에만', !!W && W.ready === D.slots.length && !!P.jacks?.cells.STORE
+    && !!P.jacks.cells['SORT:RAW'] && !P.acs.cells.STORE && !P.acs.cells['SORT:RAW'] && !P.supply.acs.cells.STORE && !P.supply.acs.cells['SORT:RAW'] && P.inCarrier === P.jacks
     && P.parts.on((h) => h.k === 'store').length === D.slots.length);
   const known = new Set(P.parts.list().map((e) => e.id));
   let born = [], pick = null, far = 0;
@@ -314,10 +314,11 @@ for (const withRig of [false, true]) {
     }
     const a = P.allAmrs.find((x) => x.mission?.raw && !x.load && x.ticket && !x.ticket.released);
     if (P.acs.amrs.some((x) => x.mission?.raw)) born.push('도어트림 AMR 이 입고 미션');
-    if (a && !pick) pick = { x: a.x, z: a.z };
+    if (P.supply.acs.amrs.some((x) => x.mission?.raw)) born.push('부품 AMR 이 입고 미션');
+    if (a && !pick) pick = { id: a.id, x: a.x, z: a.z };
     if (a) far = Math.max(far, Math.hypot(a.x - dock.x, a.z - dock.z));
   }
-  check('입고는 부품 AMR 이 창고 도크에서 싣는다(충전 자리 아님 · 도어트림 AMR 은 입고 안 함)', !!pick && far < 0.1, pick ? `${pick.x.toFixed(2)},${pick.z.toFixed(2)} · 도크 ${dock.x.toFixed(2)},${dock.z.toFixed(2)}` : '없음');
+  check('입고는 지개차 AMR 이 창고 도크에서 싣는다(충전 자리 아님 · 도어트림·부품 AMR 은 입고 안 함)', !!pick && far < 0.1 && String(pick.id ?? '').startsWith('F-AMR'), pick ? `${pick.x.toFixed(2)},${pick.z.toFixed(2)} · 도크 ${dock.x.toFixed(2)},${dock.z.toFixed(2)}` : '없음');
   check('1 h: 새 키트는 창고 팔레트에서만 생김(AMR·랙 위 0) · 꺼낸 만큼 채움 · 소유 위반 0', born.length === 0 && W.taken >= 10 && W.received >= W.taken - D.slots.length
     && P.parts.violationCount === 0 && P.parts.audit().length === 0, `${born.slice(0, 3).join(' ')} · 꺼냄 ${W.taken} · 채움 ${W.received}`);
   const b = clone(doc); b.cells.SORT.inbound.store.restock = 0;
@@ -329,7 +330,7 @@ for (const withRig of [false, true]) {
   const s = run(0);
   check('시작 때 SORT 랙 비어 있음', s.plant.rack.items.every((e) => !e));
   const sw = s.plant.work.SORT;
-  const raw = s.plant.supply.acs.cells['SORT:RAW']?.stops.at(-1);
+  const raw = s.plant.jacks.cells['SORT:RAW']?.stops.at(-1);
   const dual = s.acs.cells.SORT?.stops.at(-1);
   let seen = null, slid = 0;
   for (let i = 0; i < 4000 && !seen; i++) {
@@ -342,10 +343,11 @@ for (const withRig of [false, true]) {
     if (a && sw.ticket.started) seen = { a, T: sw.ticket, task: a.task };
   }
   check('입고 하역 중 AMR 라벨 「SORT 하역」 · 랙에 먼저 생기지 않음', !!seen && seen !== 'spawn' && seen.task.startsWith('SORT 하역'), typeof seen === 'string' ? seen : seen?.task);
-  check('입고 AMR 은 랙 뒤(SORT:RAW)에 선다 · 북쪽 듀얼 도크가 아님', !!seen && seen !== 'spawn' && raw && dual
+  check('입고 AMR 은 랙 뒤(SORT:RAW)에 선다 · 지개차 · 북쪽 듀얼 도크가 아님', !!seen && seen !== 'spawn' && raw && dual
+    && String(seen.a.id).startsWith('F-AMR')
     && Math.hypot(seen.a.x - raw.x, seen.a.z - raw.z) < 0.4
     && Math.hypot(seen.a.x - dual.x, seen.a.z - dual.z) > 2
-    && seen.a.z < dual.z, seen === 'spawn' ? seen : seen && `xy ${seen.a.x.toFixed(2)} ${seen.a.z.toFixed(2)}`);
+    && seen.a.z < dual.z, seen === 'spawn' ? seen : seen && `${seen.a.id} xy ${seen.a.x.toFixed(2)} ${seen.a.z.toFixed(2)}`);
   let left = null;
   for (let i = 0; i < 300 && seen && seen !== 'spawn'; i++) {
     const x = seen.a.x, z = seen.a.z;
@@ -394,7 +396,7 @@ for (const withRig of [false, true]) {
 {
   const s = run(0);
   const win = [], winS = [], winO = [];
-  let prevDone = 0, prevS = 0, prevO = 0, maxParts = 0, minLeft = Infinity, minGap = Infinity, crossBad = 0;
+  let prevDone = 0, prevS = 0, prevO = 0, maxParts = 0, minLeft = Infinity, minGap = Infinity, jackGap = Infinity, crossBad = 0;
   const filled = new Map();   // 라인 → 첫 토트가 채운 시각(s). 시작 재고 0이라 그 뒤부터 비지 않는지 본다.
   const P = s.plant, X = P.acs.cross[0], trim = P.acs.amrs, sub = P.supply.acs.amrs;
   for (let k = 0; k < 12; k++) {
@@ -406,7 +408,12 @@ for (const withRig of [false, true]) {
         else if (filled.has(x.dock)) minLeft = Math.min(minLeft, x.L.left);
       }
       if (P.allAmrs.filter((a) => Math.hypot(a.x - X.x, a.z - X.z) < X.r - 0.05).length > 1) crossBad++;
+      const jack = P.jacks?.amrs ?? [];
       for (const a of trim) for (const b of sub) if (Math.hypot(a.x - b.x, a.z - b.z) < 2) minGap = Math.min(minGap, bodyGap(a, b));
+      for (const a of sub) for (const b of jack) {
+        const d = Math.hypot(a.x - b.x, a.z - b.z);
+        if (d < 2) jackGap = Math.min(jackGap, d);
+      }
     }
     const d = s.plant.work.PRESS.done, e = s.plant.work.SCREW.done, o = s.plant.outbound;
     win.push(d - prevDone); prevDone = d;
@@ -425,24 +432,28 @@ for (const withRig of [false, true]) {
   const first = Math.max(...filled.values());
   check('2 h: 시작 재고 0 → 라인 8곳 모두 12분 안에 첫 토트 · 그 뒤 팔레트가 비지 않는다', P.supply.delivered >= 40 && filled.size === P.supply.lines.length && first < 720 && minLeft > 0,
     `토트 ${P.supply.delivered} · 첫 토트 마지막 ${first.toFixed(0)} s · 이후 팔레트 최소 ${minLeft}`);
-  check('2 h: 교차로 구역 안 동시에 1대(두 플릿 합쳐) · 도어트림↔부품 AMR 차체 간격 > 0.3 m', crossBad === 0 && minGap > 0.3, `겹침 ${crossBad} · 최소 ${minGap.toFixed(2)} m`);
+  check('2 h: 교차로 구역 안 동시에 1대(두 플릿 합쳐) · 도어트림↔부품 차체 > 0.3 m · 부품↔지개차 중심 > 0.5 m(같은 통로)',
+    crossBad === 0 && minGap > 0.3 && jackGap > 0.5, `겹침 ${crossBad} · 도어트림↔부품 ${minGap.toFixed(2)} m · 부품↔지개차 ${jackGap.toFixed(2)} m`);
 }
 
 // ── 부속 부품 AMR: 따로 루트·플릿 · 교차로 하나를 두 ACS 가 같이 잡는다 · 토트 창고 → AMR → 라인 팔레트 ──
 {
   const s = new ViewerState({ scenario: 'supply', quiet: true, process: doc });
   const P = s.plant, U = doc.supply;
-  check('플릿 둘: 도어트림 6 · 부품 6(id 머리 P-AMR) · state.amrs 는 둘 다', P.acs.amrs.length === 6 && P.supply.acs.amrs.length === 6
-    && P.supply.acs.amrs.every((a) => a.id.startsWith('P-AMR-')) && s.amrs.length === 12 && s.fleet('parts').amrs === P.supply.acs.amrs);
+  check('플릿 셋: 도어트림 6 · 부품 6(P-AMR) · 지개차 2(F-AMR) · state.amrs 는 셋 다', P.acs.amrs.length === 6 && P.supply.acs.amrs.length === 6 && P.jacks.amrs.length === 2
+    && P.supply.acs.amrs.every((a) => a.id.startsWith('P-AMR-')) && P.jacks.amrs.every((a) => a.id.startsWith('F-AMR-'))
+    && s.amrs.length === 14 && s.fleet('parts').amrs === P.supply.acs.amrs && s.fleet('jack').amrs === P.jacks.amrs);
   const X = P.acs.cross, xz = X.map(({ x, z, r }) => ({ x, z, r }));
   const has = (x, z) => X.some((Z) => Math.abs(Z.x - x) < 0.05 && Math.abs(Z.z - z) < 0.05);
   check('공유 구역(x 11 지선 × 북쪽 부품 통로 · SORT 서쪽·동쪽 접속 · 동쪽 반출 지선) · 두 ACS 같은 구역 객체',
     X.length >= 3 && X.every((Z) => P.supply.acs.cross.includes(Z)) && has(11, 5.4) && has(-22.6, -2.08) && has(-2.9, -1.975), JSON.stringify(xz));
-  check('SORT 잠금은 두 플릿이 같은 객체 · 서로 peers', P.acs.locks.SORT === P.supply.acs.locks.SORT && P.acs.peers.includes(P.supply.acs) && P.supply.acs.peers.includes(P.acs));
-  check('부품 그래프: PRESS·SCREW·OUT 셀 도크 없음 · SORT(레인) · SORT:IN(투입) 있음 · 도어트림 그래프에 창고·라인·투입 도크 없음',
+  check('SORT 잠금은 두 플릿이 같은 객체 · 부품은 도어트림·지개차 둘 다 peers', P.acs.locks.SORT === P.supply.acs.locks.SORT && P.acs.peers.includes(P.supply.acs) && P.supply.acs.peers.includes(P.acs)
+    && P.supply.acs.peers.includes(P.jacks) && P.jacks.peers.includes(P.supply.acs) && !P.jacks.locks.SORT);
+  check('부품 그래프: PRESS·SCREW·OUT 셀 도크 없음 · SORT(레인) · SORT:IN(투입) 있음 · 창고·원재료 하역은 지개차 · 도어트림 그래프에 창고·라인·투입 도크 없음',
     !['PRESS', 'SCREW', 'OUT'].some((id) => P.supply.acs.cells[id]) && !!P.supply.acs.cells.SORT && !!P.supply.acs.cells['SORT:IN']
     && !Object.keys(P.acs.cells).some((id) => id === 'PARTS' || id === 'SORT:IN' || id.includes(':L'))
-    && !P.acs.cells['SORT:RAW'] && !!P.supply.acs.cells['SORT:RAW'] && !!P.supply.acs.cells.STORE);
+    && !P.acs.cells['SORT:RAW'] && !P.supply.acs.cells['SORT:RAW'] && !P.supply.acs.cells.STORE
+    && !!P.jacks.cells['SORT:RAW'] && !!P.jacks.cells.STORE);
   const F = P.supply.feed;
   check('레인 = 라인 쪽: A PRESS 북 · B PRESS 남 · C SCREW 북 · D SCREW 남 · 미배정 라인 없음',
     F.laneOf('PRESS:L03').id === 'A' && F.laneOf('PRESS:L01').id === 'B' && F.laneOf('SCREW:L04').id === 'C' && F.laneOf('SCREW:L02').id === 'D' && !P.supply.unserved?.length);

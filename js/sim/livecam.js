@@ -6,7 +6,7 @@ import { placeOf, toWorld } from './layout.js';
 
 export const LIVE = Object.freeze({
   amr: Object.freeze({ y: 0.48, z: 0.58, look: 6.5, lookY: 0.28, fov: 72 }),
-  fork: Object.freeze({ y: 1.16, z: 0.22, look: 3.4, lookY: 0.38, fov: 70 }),
+  fork: Object.freeze({ y: 1.56, z: -0.18, look: 2.6, lookY: 0.32, fov: 70 }),
   hound: Object.freeze({ y: 0.44, z: 0.30, look: 4.6, lookY: 0.28, fov: 68 }),
   drone: Object.freeze({ drop: 0.08, fov: 78 }),
   arm: Object.freeze({ back: 0.10, ahead: 0.85, fov: 62 }),

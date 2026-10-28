@@ -1,5 +1,5 @@
 // AMR 경로 기하·편집: 우측 통행 차로, 접속, 최단 경로, 점검, 교차 구역, Admin 편집 함수.
-import { defaultLayout, normalizeLayout, partsLayout, validateLayout } from '../js/sim/layout.js';
+import { defaultLayout, jackLayout, normalizeLayout, partsLayout, validateLayout } from '../js/sim/layout.js';
 import { LANE, attach, cellGeo, cutAt, graphOf, journey, pathLength, routeIssues } from '../js/sim/route.js';
 import { junctions, mapOf, routeGeo } from '../js/sim/acs.js';
 import { RAIL, insetSeg, nodeRadii, railPlan, railWidth } from '../js/render/rails.js';
@@ -44,12 +44,15 @@ check('교차 구역 · SORT 출구와 PRESS 입구는 한 구역 · PRESS 출�
   && zs.some((z) => z.cells.includes('PRESS') && z.cells.includes('SCREW')) && zs.filter((z) => z.cells.includes('SCREW')).length === 2, zs.map((z) => `${z.cells.join('+')}@${z.x.toFixed(1)},${z.z.toFixed(1)} r${z.r.toFixed(2)}`).join(' '));
 check('충전 자리는 교차 구역 밖', L.amr.homes.every((h) => zs.every((z) => Math.hypot(h.x - z.x, h.z - z.z) > z.r + 0.62)));
 const map = mapOf(routeGeo(L));
-check('그리기용 지도: 간선 9 · 충전 자리 6 · 셀 3 + 완료품 적재 구역(원재료 하역·창고는 부품 루트) · 충전 자리는 루트를 등진다', map.edges.length === 9 && map.homes.length === 6 && map.cells.length === 4 && !map.cells.find((c) => c.id === 'OUT').bad
+check('그리기용 지도: 간선 9 · 충전 자리 6 · 셀 3 + 완료품 적재 구역(원재료 하역·창고는 지개차 루트) · 충전 자리는 루트를 등진다', map.edges.length === 9 && map.homes.length === 6 && map.cells.length === 4 && !map.cells.find((c) => c.id === 'OUT').bad
   && !map.cells.some((c) => c.id.endsWith(':OUT') || c.id === 'SORT:RAW' || c.id === 'STORE')
   && map.homes.every((h) => near(h.heading, Math.PI, 1e-6) || near(h.heading, -Math.PI, 1e-6)));
 const pmap = mapOf(routeGeo(partsLayout(L)));
-check('부품 지도: 원재료 창고·SORT 뒤쪽 하역 도크가 닿음 · 도어트림 SORT 남쪽 지선(G1–R0) 없음 · 중심선 폭은 양방향보다 좁음',
-  ['STORE', 'SORT:RAW', 'PARTS'].every((id) => pmap.cells.some((c) => c.id === id && !c.bad)) && !map.edges.some((e) => e.center)
+const jmap = mapOf(routeGeo(jackLayout(L)));
+check('부품 지도: 창고·SORT 투입 도크가 닿음 · 원재료 하역은 지개차 · 도어트림 SORT 남쪽 지선(G1–R0) 없음 · 중심선 폭은 양방향보다 좁음',
+  ['PARTS', 'SORT:IN'].every((id) => pmap.cells.some((c) => c.id === id && !c.bad))
+  && !pmap.cells.some((c) => c.id === 'STORE' || c.id === 'SORT:RAW')
+  && ['STORE', 'SORT:RAW'].every((id) => jmap.cells.some((c) => c.id === id && !c.bad)) && !map.edges.some((e) => e.center)
   && railWidth({ center: true }) === RAIL.link && railWidth({}) === RAIL.two && RAIL.link < RAIL.one);
 
 {

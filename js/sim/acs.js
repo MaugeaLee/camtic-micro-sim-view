@@ -129,11 +129,18 @@ function cover(Z, O) {
   Z.cells.push(...O.cells);
 }
 
+function addPeer(X, Y) {
+  X.peers = X.peers ?? [];
+  if (!X.peers.includes(Y)) X.peers.push(Y);
+  X.seen = null;
+}
+
 // 두 ACS 가 같이 쓰는 것: 교차로 구역, 서로 겹치는 셀 접속 구역(같은 셀 입구에 두 플릿이 붙는 자리), 같은 id 셀의 잠금·정차 칸.
 // 교차로가 어느 쪽 셀 접속 구역과 겹치면 하나로 합친다(겹친 두 구역을 서로 반대 방향 차가 하나씩 잡으면 교착 —
 // junctions 가 합치는 것과 같은 이유). 두 플릿은 서로의 차도 감지한다(peers).
+// 세 플릿이면 두 번씩 부른다 — 이미 나눈 교차 구역·peers 는 덮지 않고 붙인다.
 export function shareCross(A, B) {
-  const X = crossings(A.graph, B.graph);
+  const X = [...(A.cross ?? []), ...(B.cross ?? []), ...crossings(A.graph, B.graph)];
   for (let i = A.own.length - 1; i >= 0; i--) {
     const O = A.own[i];
     if (!B.own.some((Q) => dist(O, Q) < O.r + Q.r - 0.4)) continue;
@@ -161,7 +168,7 @@ export function shareCross(A, B) {
   A.setCross(X);
   B.setCross(X);
   for (const id of Object.keys(A.locks)) if (B.locks[id]) B.locks[id] = A.locks[id];
-  A.peers = [B]; B.peers = [A];
+  addPeer(A, B); addPeer(B, A);
   return X;
 }
 
@@ -173,6 +180,7 @@ export class Acs {
     this.queue = [];
     this.missionSeq = 0;
     this.cross = [];
+    this.peers = [];
     this.setGeo(layout);
     if (count > this.homes.length) throw new Error(`AMR ${count}대 > 충전 자리 ${this.homes.length}`);
     this.amrs = Array.from({ length: count }, (_, i) => new Amr(`${prefix}-${String(i + 1).padStart(2, '0')}`, i, this.homes[i]));
@@ -182,6 +190,15 @@ export class Acs {
     this.cross = zs;
     this.zones = [...this.own, ...zs];
     this.geoRev++;
+  }
+
+  // 레이아웃을 다시 읽기 전에 공유 구역·peers 를 비운다. 이어서 shareCross 를 다시 건다.
+  clearShare() {
+    this.cross = [];
+    this.peers = [];
+    this.seen = null;
+    this.own = junctions(this.graph, this.cells);
+    this.zones = [...this.own];
   }
 
   setGeo(layout) {

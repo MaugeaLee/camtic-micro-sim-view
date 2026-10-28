@@ -1,8 +1,10 @@
 // 공급 AMR 플릿을 그린다: 차체·바퀴·상태등·적재 토트, 남은 경로선, ACS 지도(루트 레일·셀 정차 칸·충전 자리·교차 구역) 바닥 표시.
-// state.fleet(key) 의 amrs · acs.map() 을 읽기만 한다 (sim 을 import 하지 않음). 플릿(도어트림 · 부속 부품)마다 하나씩 만든다 — 차체·통로선 색으로 구분.
+// state.fleet(key) 의 amrs · acs.map() 을 읽기만 한다 (sim 을 import 하지 않음). 플릿(도어트림 · 부속 부품 · 지개차)마다 하나씩 만든다 — 차체·통로선 색으로 구분.
 // 도어트림 플릿은 셀 GLB 의 메인 AMR(AMR_MAIN_JIG) 모델을 쓴다(setModel). 모델이 없으면 상자 차체 + 적재면까지 올린 상부 모듈.
+// 지개차 플릿은 jack.js 절차 메시. AGV GLB 를 쓰지 않는다.
 import * as THREE from 'three';
 import { RAIL, linkSegs, railPlan } from './rails.js';
+import { buildJack } from './jack.js';
 import { camLens } from './livecam.js';
 
 const BODY = Object.freeze({ l: 1.1, w: 0.78, h: 0.3, wheel: 0.1, clear: 0.06 });
@@ -11,10 +13,12 @@ const PATH_MAX = 40;
 const Y = Object.freeze({ road: 0.016, mark: 0.02, pad: 0.026 });
 
 export class FleetView {
-  // fleet: state.fleet 키 · body: 차체 색 · lane: 통로 가장자리 선 색
-  constructor(scene, { fleet = 'trim', body = 0xdfe3e8, lane = 0xe8b923, skipCells = [] } = {}) {
+  // fleet: state.fleet 키 · body: 차체 색 · lane: 통로 가장자리 선 색 · shape: box|jack · mapMode: full|docks
+  constructor(scene, { fleet = 'trim', body = 0xdfe3e8, lane = 0xe8b923, skipCells = [], shape = 'box', mapMode = 'full' } = {}) {
     this.scene = scene;
     this.key = fleet;
+    this.shape = shape;
+    this.mapMode = mapMode;
     this.skipCells = new Set(skipCells);
     this.root = new THREE.Group();
     this.root.name = fleet === 'trim' ? 'fleet' : `fleet-${fleet}`;
@@ -56,6 +60,7 @@ export class FleetView {
     const g = new THREE.Group();
     g.name = a.id;
     g.userData.amrId = a.id;
+    if (this.shape === 'jack') return this.makeJack(a, g);
     if (this.model) return this.makeModel(a, g);
     const body = new THREE.Mesh(S.body, S.bodyMat);
     body.position.y = BODY.clear + BODY.h / 2;
@@ -96,6 +101,23 @@ export class FleetView {
     const cam = camLens();
     cam.position.set(0, BODY.clear + BODY.h + 0.12, BODY.l / 2 - 0.04);
     g.add(body, deck, led, ledBack, lidar, ...wheels, ...extra, tote, sel, cam);
+    return this.finish(a, g, { led: ledMat, wheels, tote, sel, cam });
+  }
+
+  // 지개차: 절차 메시(파란 구동부·마스트·포크). 키트는 parts.js 가 포크 윗면(deck)에 그린다.
+  makeJack(a, g) {
+    const S = this.shared;
+    const ledMat = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: LED.park, emissiveIntensity: 1.6 });
+    const { body, wheels, camAt } = buildJack({ deck: a.deck, led: ledMat });
+    const tote = new THREE.Mesh(S.tote, S.toteMat);
+    tote.visible = false;
+    const sel = new THREE.Mesh(S.ring, new THREE.MeshBasicMaterial({ color: 0x4fb3ff, transparent: true, opacity: 0.9, depthWrite: false }));
+    sel.rotation.x = -Math.PI / 2;
+    sel.position.y = 0.02;
+    sel.visible = false;
+    const cam = camLens();
+    cam.position.set(camAt[0], camAt[1], camAt[2]);
+    g.add(body, tote, sel, cam);
     return this.finish(a, g, { led: ledMat, wheels, tote, sel, cam });
   }
 
@@ -152,7 +174,7 @@ export class FleetView {
       const spin = (a.dist - it.dist) / BODY.wheel;
       it.dist = a.dist;
       for (const w of it.wheels) w.rotation.x += spin;
-      it.tote.visible = !!a.load && !a.load.e && !a.load.totes?.length;  // 키트·PARTS 토트 엔티티는 parts.js
+      it.tote.visible = this.shape !== 'jack' && !!a.load && !a.load.e && !a.load.totes?.length;  // 키트·PARTS 토트 엔티티는 parts.js
       const c = ledColor(a);
       it.led.emissive.setHex(c);
       it.led.emissiveIntensity = a.moving ? 1.8 : 1.0 + 0.6 * Math.sin(this.t * (a.charging ? 3 : 1.5) + a.idx);
@@ -186,33 +208,36 @@ export class FleetView {
   drawMap(map) {
     this.clearMarks();
     if (!map) return;
-    const S = this.shared, M = this.marks, plan = railPlan(map);
-    const roads = plan.segs.filter((s) => !s.bad).map(planeOf);
-    const bads = plan.segs.filter((s) => s.bad).map(planeOf);
-    const links = [];
-    for (const c of map.cells) {
-      if (this.skipCells.has(c.id)) continue;
-      links.push(...linkSegs(c.links).map((s) => ({ ...planeOf(s), bad: c.bad })));
+    const S = this.shared, M = this.marks;
+    if (this.mapMode !== 'docks') {
+      const plan = railPlan(map);
+      const roads = plan.segs.filter((s) => !s.bad).map(planeOf);
+      const bads = plan.segs.filter((s) => s.bad).map(planeOf);
+      const links = [];
+      for (const c of map.cells) {
+        if (this.skipCells.has(c.id)) continue;
+        links.push(...linkSegs(c.links).map((s) => ({ ...planeOf(s), bad: c.bad })));
+      }
+      for (const h of map.homes) {
+        const s = h.link ? linkSegs([h.link])[0] : null;
+        if (s) links.push(planeOf(s));
+      }
+      roads.push(...links.filter((p) => p.l > 0 && !p.bad));
+      bads.push(...links.filter((p) => p.l > 0 && p.bad));
+      stampPlanes(M, roads, S.roadMat, Y.road);
+      stampPlanes(M, bads, S.badMat, Y.road);
+      const square = (j) => ({ x: j.x, z: j.z, heading: j.heading, w: 2 * j.r, l: 2 * j.r, side: 0 });
+      stampPlanes(M, plan.joints.filter((j) => !j.bad).map(square), S.roadMat, Y.road);
+      stampPlanes(M, plan.joints.filter((j) => j.bad).map(square), S.badMat, Y.road);
+      const lines = [];
+      for (const s of plan.segs) {
+        const side = s.w / 2 - RAIL.line / 2;
+        for (const d of [-1, 1]) lines.push({ ...planeOf(s), w: RAIL.line, side: d * side });
+      }
+      stampPlanes(M, lines, S.lineMat, Y.mark);
+      stampPlanes(M, plan.dashes, S.dashMat, Y.mark);
+      stampArrows(M, plan.arrows, S);
     }
-    for (const h of map.homes) {
-      const s = h.link ? linkSegs([h.link])[0] : null;
-      if (s) links.push(planeOf(s));
-    }
-    roads.push(...links.filter((p) => p.l > 0 && !p.bad));
-    bads.push(...links.filter((p) => p.l > 0 && p.bad));
-    stampPlanes(M, roads, S.roadMat, Y.road);
-    stampPlanes(M, bads, S.badMat, Y.road);
-    const square = (j) => ({ x: j.x, z: j.z, heading: j.heading, w: 2 * j.r, l: 2 * j.r, side: 0 });
-    stampPlanes(M, plan.joints.filter((j) => !j.bad).map(square), S.roadMat, Y.road);
-    stampPlanes(M, plan.joints.filter((j) => j.bad).map(square), S.badMat, Y.road);
-    const lines = [];
-    for (const s of plan.segs) {
-      const side = s.w / 2 - RAIL.line / 2;
-      for (const d of [-1, 1]) lines.push({ ...planeOf(s), w: RAIL.line, side: d * side });
-    }
-    stampPlanes(M, lines, S.lineMat, Y.mark);
-    stampPlanes(M, plan.dashes, S.dashMat, Y.mark);
-    stampArrows(M, plan.arrows, S);
     for (const c of map.cells) {
       if (this.skipCells.has(c.id)) continue;
       c.stops.forEach((s, i) => {
@@ -247,7 +272,7 @@ export class FleetView {
 
   focusOf(id, state) {
     const a = this.of(state).amrs.find((k) => k.id === id);
-    return a ? { center: new THREE.Vector3(a.x, 0.4, a.z), size: 4 } : null;
+    return a ? { center: new THREE.Vector3(a.x, this.shape === 'jack' ? 0.7 : 0.4, a.z), size: this.shape === 'jack' ? 5 : 4 } : null;
   }
 
   pickables() {
