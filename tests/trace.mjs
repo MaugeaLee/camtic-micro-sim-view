@@ -1,7 +1,7 @@
 // 공정 추적(data/trace.js): 다음 입고 키트를 SORT→SCREW→PRESS→SCREW→OUT 끝까지 따라가며 리포트.
 import { readFile } from 'node:fs/promises';
 import { ViewerState } from '../js/sim/state.js';
-import { ProcessTrace, TRACE_SCHEMA, expectedPath, headlineOf, pastStart } from '../js/data/trace.js';
+import { ProcessTrace, TRACE_SCHEMA, expectedPath, headlineOf, inboundHold, pastStart, waitWhy } from '../js/data/trace.js';
 
 let pass = 0, fail = 0;
 const check = (name, ok, info = '') => { ok ? pass++ : fail++; console.log(`  ${ok ? 'PASS' : 'FAIL'} ${name}${info ? ' — ' + info : ''}`); };
@@ -14,10 +14,74 @@ console.log('trace');
 check('공정 순서 → 방문 키 SORT · SCREW/0 · PRESS/0 · SCREW/1 · OUT',
   expectedPath(['SORT', 'SCREW', 'PRESS', 'SCREW', 'OUT']).join() === 'SORT,SCREW/0,PRESS/0,SCREW/1,OUT');
 check('배너: 대기', headlineOf(null, 'wait')?.title === '공정 추적' && headlineOf(null, 'wait')?.detail === '다음 입고 대기');
+check('배너: 대기 사유 = Cell 공정 지연', headlineOf(null, 'wait', 'SCREW 공정 지연으로 인한 대기')?.detail === 'SCREW 공정 지연으로 인한 대기');
 check('배너: SCREW 1차 = 이름 + 한 줄', headlineOf({ key: 'SCREW/0', label: 'SCREW 1차 체결' }, 'run')?.title === 'SCREW 1차 체결'
   && headlineOf({ key: 'SCREW/0', label: 'SCREW 1차 체결' }, 'run')?.detail === '벨트라인·스피커 그릴');
 check('배너: 리프트 올림은 이름/내용 분리', headlineOf({ key: 'PRESS/0', label: 'PRESS 압입 올림' }, 'run')?.title === 'PRESS 압입'
   && headlineOf({ key: 'PRESS/0', label: 'PRESS 압입 올림' }, 'run')?.detail === '올림');
+
+{
+  const busy = (id, phase = 'work', pass = 0) => ({
+    lift: { kit: { id: 1 }, phase, pass },
+    busy: () => phase !== 'empty',
+  });
+  const hold = (over = {}) => inboundHold({
+    plant: {
+      route: ['SORT', 'SCREW', 'PRESS', 'SCREW', 'OUT'],
+      def: { source: 'SORT' },
+      lifts: ['SCREW', 'PRESS'],
+      inM: null,
+      inCarrier: { ok: () => true },
+      rack: { items: [{ id: 1 }, { id: 2 }] },
+      units: { SORT: { state: 'IDLE' }, SCREW: { state: 'BUSY' }, PRESS: { state: 'IDLE' } },
+      work: { SCREW: busy('SCREW'), PRESS: { lift: { kit: null, phase: 'empty', pass: 0 } } },
+      inFlow: new Set(),
+      store: {},
+      ...over,
+    },
+  });
+  check('입고 대기 사유: SCREW 작업 중 · 랙 가득', hold() === 'SCREW 공정 지연으로 인한 대기', hold());
+  check('입고 대기 사유: 여러 셀이 바빠도 Cell 하나만',
+    hold({
+      units: { SORT: { state: 'IDLE' }, SCREW: { state: 'BUSY' }, PRESS: { state: 'BUSY' } },
+      work: { SCREW: busy('SCREW'), PRESS: busy('PRESS') },
+    }) === 'SCREW 공정 지연으로 인한 대기');
+  check('입고 대기 사유: 도크·AMR 점유는 안 적음',
+    hold({
+      rack: { items: [null, null] },
+      inCarrier: { ok: () => false },
+      units: { SORT: { state: 'IDLE' }, SCREW: { state: 'IDLE' }, PRESS: { state: 'IDLE' } },
+      work: { SCREW: { lift: { kit: null, phase: 'empty', pass: 0 } }, PRESS: { lift: { kit: null, phase: 'empty', pass: 0 } } },
+    }) == null);
+  check('입고 대기 사유: PRESS 고장',
+    hold({
+      units: { SORT: { state: 'IDLE' }, SCREW: { state: 'IDLE' }, PRESS: { state: 'DOWN', down: { why: '주입' } } },
+      work: { SCREW: { lift: { kit: null, phase: 'empty', pass: 0 } }, PRESS: busy('PRESS') },
+    }) === 'PRESS 고장으로 인한 대기');
+  const amr = { id: 'AMR-1', moving: false, charging: false, load: { dest: null }, waitFor: null, task: '대기' };
+  const kit = { id: 9, holder: { k: 'amr', id: 'AMR-1' }, step: 0 };
+  amr.load.e = kit;
+  const parked = {
+    route: ['SORT', 'SCREW', 'PRESS', 'SCREW', 'OUT'],
+    def: { source: 'SORT' },
+    lifts: ['SCREW', 'PRESS'],
+    units: { SORT: { state: 'IDLE' }, SCREW: { state: 'BUSY' }, PRESS: { state: 'IDLE' } },
+    work: { SCREW: busy('SCREW'), PRESS: { lift: { kit: null, phase: 'empty', pass: 0 } } },
+    allAmrs: [amr],
+    nextOf: () => 'SCREW',
+    inFlow: new Set([kit]),
+  };
+  check('키트 이송 대기 사유: 다음 Cell 공정 지연', waitWhy({ plant: parked }, kit) === 'SCREW 공정 지연으로 인한 대기',
+    waitWhy({ plant: parked }, kit));
+  const clear = {
+    ...parked,
+    units: { SORT: { state: 'IDLE' }, SCREW: { state: 'IDLE' }, PRESS: { state: 'IDLE' } },
+    work: { SCREW: { lift: { kit: null, phase: 'empty', pass: 0 } }, PRESS: { lift: { kit: null, phase: 'empty', pass: 0 } } },
+    allAmrs: [{ ...amr, waitFor: 'SORT', blockedOn: { id: 'AMR-2' } }],
+  };
+  check('키트 이송 대기 사유: AMR 충돌·진입은 안 적음', waitWhy({ plant: clear }, kit) == null,
+    waitWhy({ plant: clear }, kit));
+}
 
 {
   const s = plant(), T = new ProcessTrace();
@@ -25,11 +89,21 @@ check('배너: 리프트 올림은 이름/내용 분리', headlineOf({ key: 'PRE
   const v = T.start(s);
   check('시작 = 대기 · 스키마 · 가정', v.mode === 'wait' && v.schema === TRACE_SCHEMA && v.assumed === true && v.source === 'sim'
     && v.expected.join() === 'SORT,SCREW/0,PRESS/0,SCREW/1,OUT');
-  check('대기 view 배너', v.banner?.title === '공정 추적' && v.banner.detail === '다음 입고 대기');
+  check('대기 view 배너', v.banner?.title === '공정 추적' && (v.banner.detail === '다음 입고 대기' || /대기로/.test(v.banner.detail)));
   T.tick(s);
   check('t=0 입고 전이면 아직 대기', T.mode === 'wait' && T.kit == null);
   T.stop();
   check('중지 = off · 리포트 없음', T.mode === 'off' && T.view(s).kit == null);
+}
+
+{
+  const s = plant();
+  for (let i = 0; i < 5000; i++) s.step(0.1);
+  const T = new ProcessTrace();
+  T.start(s);
+  T.tick(s);
+  const w = T.view(s).waitWhy;
+  check('가동 중 대기 사유는 Cell 하나', T.mode !== 'wait' || !w || /^(SORT|SCREW|PRESS) (공정 지연|고장)으로 인한 대기$/.test(w), w ?? T.mode);
 }
 
 {

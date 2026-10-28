@@ -31,6 +31,7 @@ export class Amr {
     this.waitFor = null;      // 진입 대기점에 서 있는 셀 id
     this.bound = null;        // 향하는 셀 id (잠금 잡기 전까지)
     this.off = false;         // 운휴: 충전 자리가 모자라 배차·주행·감지에서 빠짐
+    this.halt = null;         // 정지 사유(incidents.js 기록) — 있으면 그 자리에 섬
     this.steps = []; this.path = null; this.reverse = false;
     this.blockedOn = null; this.blockT = 0; this.passT = 0; this.holdFor = null; this.holdT = 0;
     this.detours = 0; this.wantDir = null; this.moving = false; this.charging = false; this.docked = false;
@@ -73,6 +74,15 @@ export class Amr {
     fleet.zonesFree?.(this);
     this.docked = isDocked(this);
     if (this.docked) { this.blockedOn = null; this.blockT = 0; }
+    this.drain(h);
+  }
+
+  // 정지(고장 주입·통로 통제·플릿 정지): 그 자리에 선다. 단계·잠금·티켓은 그대로 두고 해제되면 이어 간다.
+  freeze(h, fleet) {
+    this.v = 0; this.moving = false; this.charging = false;
+    this.blockedOn = null; this.blockT = 0;
+    fleet.zonesFree?.(this);
+    this.docked = isDocked(this);
     this.drain(h);
   }
 
@@ -190,6 +200,8 @@ export class Amr {
     const stopAt = 2 * AMR.radius + 0.35;
     const gap = along - stopAt;
     if (gap > 0.05) { this.blockedOn = null; this.blockT = 0; return gap; }
+    // 정지한 차(고장 주입 등) 뒤에서는 우회·우선 통행 없이 선다 — 차체를 뚫고 지나가지 않게.
+    if (o.halt) { this.blockedOn = o; this.blockT = 0; return null; }
 
     const end = this.path[this.path.length - 1];
     const off = 2 * AMR.radius + 0.35;

@@ -39,6 +39,7 @@ try {
   check('화이트리스트 밖 404', (await get('/server.mjs')).status === 404 && (await get('/context/facts.json')).status === 404);
   check('API 쓰기 거부', (await get(cfg.api.status, { method: 'POST' })).status === 405);
   check('layout POST 거부', (await get(cfg.api.layout, { method: 'POST' })).status === 405);
+  check('plant POST 거부', (await get(cfg.api.plant, { method: 'POST' })).status === 405);
 
   const lay = await (await get(cfg.api.layout)).json();
   check('layout GET', lay.version === 2 && lay.cells.PRESS && lay.cells.SCREW && lay.cells.SORT && lay.amr?.homes?.length > 0);
@@ -119,6 +120,28 @@ try {
   check('기본 파일 PUT 거부', putDef.status === 400);
 } finally {
   locked.server.close();
+}
+
+const plantRel = `tests/_tmp_plant_${process.pid}.json`;
+const plantTmp = path.join(ROOT, plantRel);
+const plantSrv = await startServer({ port: 0, host: '127.0.0.1', plantFile: plantRel });
+try {
+  const u = `http://127.0.0.1:${plantSrv.port}`;
+  const empty = await fetch(`${u}${plantSrv.cfg.api.plant}`);
+  check('plant 없으면 404', empty.status === 404);
+  const body = { v: 1, t: 12.5, scenario: 'supply', running: true, speed: 3, amr: null, drones: null, inspect: null, process: true, layoutFp: 'ab', processFp: 'cd' };
+  const put = await fetch(`${u}${plantSrv.cfg.api.plant}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const saved = await put.json();
+  check('plant PUT', put.status === 200 && saved.t === 12.5 && saved.scenario === 'supply' && saved.speed === 3);
+  const again = await (await fetch(`${u}${plantSrv.cfg.api.plant}`)).json();
+  check('plant PUT 후 GET', again.t === 12.5 && again.running === true);
+  const bad = await fetch(`${u}${plantSrv.cfg.api.plant}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: '{"v":1}' });
+  check('잘못된 plant PUT 거부', bad.status === 400);
+  const del = await fetch(`${u}${plantSrv.cfg.api.plant}`, { method: 'DELETE' });
+  check('plant DELETE', del.status === 200 && (await fetch(`${u}${plantSrv.cfg.api.plant}`)).status === 404);
+} finally {
+  plantSrv.server.close();
+  try { fs.unlinkSync(plantTmp); } catch { /* 없으면 무시 */ }
 }
 
 console.log(`  ${pass} pass, ${fail} fail`);

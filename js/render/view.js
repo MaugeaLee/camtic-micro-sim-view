@@ -38,7 +38,7 @@ export class CellView {
     this.applyLabels();
   }
 
-  // 셀 머리 위 라벨(id·상태·재고). 패널 글자는 건드리지 않는다.
+  // 셀 머리 위 라벨(id·상태·재고). AMR·드론·장비 라벨은 TagLayer. 패널 글자는 건드리지 않는다.
   setLabels(on) {
     this.showLabels = !!on;
     this.applyLabels();

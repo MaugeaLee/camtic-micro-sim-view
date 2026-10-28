@@ -4,6 +4,7 @@ import { MAX_STEP, SPEEDS } from '../core/env.js';
 import { defaultLayout } from './layout.js';
 import { Plant, SCENARIOS } from './scenario.js';
 import { findEquip, listEquip } from './equip.js';
+import { FLEET_LABEL } from './incidents.js';
 
 const LOG_CAP = 160;
 
@@ -58,6 +59,46 @@ export class ViewerState {
   }
 
   setLayout(doc) { this.plant?.setLayout(doc); }
+
+  // ── 운영자 주입(incidents.js). 지금 시뮬 시각에 기록하고, 켜고 끄기는 스텝이 시각으로 한다. ──
+  get incidents() { return this.plant?.incidents ?? null; }
+
+  inject(spec) {
+    const I = this.incidents;
+    if (!I) throw new Error('시나리오 없음 — 주입할 공장이 없다');
+    const t = spec?.target;
+    if (spec?.kind === 'fault') {
+      const u = this.plant.units;
+      const ok = !!u[t] || (!!findEquip(this, t) && !!u[findEquip(this, t).cell]) || this.amrs.some((a) => a.id === t && !a.off);
+      if (!ok) throw new Error(`고장 대상 없음: ${t}`);
+    }
+    if (spec?.kind === 'event' && spec.type === 'worker' && !this.plant.units[t]) throw new Error(`없는 셀: ${t}`);
+    const x = I.add(spec, this.time);
+    if (x.kind === 'fleet') this.log('info', x.why);
+    this.emit('incident', { no: x.no, kind: x.kind });
+    return x;
+  }
+
+  clearIncident(no) {
+    const ok = !!this.incidents?.clear(no, this.time);
+    if (ok) this.emit('incident', { no, cleared: true });
+    return ok;
+  }
+
+  // 플릿 속도 배율·정지(AMR 패널). 같은 값이면 기록하지 않는다.
+  setFleetSpeed(fleet, value) {
+    if (this.incidents?.fleetSpeed(fleet, this.time) === value) return null;
+    return this.inject({ kind: 'fleet', type: 'speed', target: fleet, value });
+  }
+
+  setFleetHalt(fleet, on) {
+    const I = this.incidents;
+    if (!I || I.fleetHalted(fleet, this.time) === !!on) return null;
+    if (on) return this.inject({ kind: 'fleet', type: 'halt', target: fleet });
+    for (const x of I.active(this.time)) if (x.kind === 'fleet' && x.type === 'halt' && x.target === fleet) I.clear(x.no, this.time);
+    this.log('info', `${FLEET_LABEL[fleet]} 운행 재개`);
+    return true;
+  }
 
   setRunning(on) {
     if (this.running === !!on) return;

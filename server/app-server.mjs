@@ -1,4 +1,4 @@
-// 정적 파일 + API. 시뮬은 돌리지 않는다 — 상태는 브라우저가 가진다. 쓰기는 /api/layout PUT(루프백)만.
+// 정적 파일 + API. 시뮬은 돌리지 않는다 — 상태는 브라우저가 가진다. 쓰기는 /api/layout PUT · /api/plant PUT·DELETE(루프백)만.
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -8,6 +8,7 @@ import { catalog, wantsHtml } from './asset-viewer.mjs';
 import { buildOpenApi } from './openapi.mjs';
 import { loadLayout, saveLayout } from './layout.mjs';
 import { loadProcess } from './process.mjs';
+import { clearPlant, loadPlant, savePlant } from './plant.mjs';
 
 export { ROOT };
 
@@ -71,6 +72,7 @@ export function createHandler(cfg) {
 
     if (isApi(p, cfg)) {
       if (p === cfg.api.layout) return layoutApi(req, res, url, cfg);
+      if (p === cfg.api.plant) return plantApi(req, res, cfg);
       if (req.method !== 'GET') return json(res, 405, { error: 'method not allowed' });
       if (p === cfg.api.bStream) return chapterB.stream(req, res);
       if (p === cfg.api.bStatus) { chapterB.ensure(); return json(res, 200, chapterB.status()); }
@@ -155,6 +157,33 @@ async function layoutApi(req, res, url, cfg) {
     const saved = saveLayout(cfg, raw);
     if (!saved.ok) return json(res, 400, { error: saved.errors.join(' · ') });
     return json(res, 200, saved.doc);
+  }
+  return json(res, 405, { error: 'method not allowed' });
+}
+
+async function plantApi(req, res, cfg) {
+  if (req.method === 'GET') {
+    const loaded = loadPlant(cfg);
+    if (!loaded.ok) return json(res, loaded.errors[0] === '없음' ? 404 : 400, { error: loaded.errors.join(' · ') });
+    return json(res, 200, loaded.doc);
+  }
+  if (req.method === 'PUT') {
+    if (!isLoopback(req)) return json(res, 403, { error: 'local only' });
+    let text;
+    try { text = await readBody(req); }
+    catch { return json(res, 413, { error: 'too large' }); }
+    let raw;
+    try { raw = JSON.parse(text); }
+    catch { return json(res, 400, { error: 'JSON 파싱 실패' }); }
+    const saved = savePlant(cfg, raw);
+    if (!saved.ok) return json(res, 400, { error: saved.errors.join(' · ') });
+    return json(res, 200, saved.doc);
+  }
+  if (req.method === 'DELETE') {
+    if (!isLoopback(req)) return json(res, 403, { error: 'local only' });
+    const cleared = clearPlant(cfg);
+    if (!cleared.ok) return json(res, 400, { error: cleared.errors.join(' · ') });
+    return json(res, 200, { ok: true });
   }
   return json(res, 405, { error: 'method not allowed' });
 }

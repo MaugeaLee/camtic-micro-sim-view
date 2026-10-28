@@ -23,6 +23,7 @@ import { SortWork } from './sortwork.js';
 import { Store } from './store.js';
 import { normalizeProcess, outDef, passOf, supplyDef, workDef } from './process.js';
 import { Supply } from './supply.js';
+import { Incidents, titleOf } from './incidents.js';
 
 const smooth = (u) => u * u * (3 - 2 * u);
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -117,6 +118,8 @@ export class Plant {
     const dogs = [this.hound, this.inspector].filter(Boolean);
     for (const d of dogs) d.peers = dogs;
     this.drones = new DroneFleet({ count: def.drones ?? 0 });
+    this.incidents = new Incidents();   // 운영자 주입(고장·공급 차질·현장 이벤트·플릿 설정)
+    this.bindFleet(this.acs, 'trim');
     this.proc = process ? normalizeProcess(process, { cycle: def.cycle }) : null;
     if (this.proc) this.setupProcess();
   }
@@ -158,6 +161,7 @@ export class Plant {
     }
     if (feed && this.work[S]?.feed === feed) {
       this.supply = new Supply(this, U, this.layout, this.def.parts, feed);
+      this.bindFleet(this.supply.acs, 'parts');
       this.linkCross();
     }
     // 원재료 창고는 부품 창고 옆(남쪽 통로)이라 부품 AMR 이 나른다. 부품 플릿이 없으면 창고도 없다(아래 inCarrier).
@@ -169,6 +173,15 @@ export class Plant {
     }
     this.placeDocks();
   }
+
+  // 주입 기록을 ACS 에 잇는다: 멈출 차(고장·통로 통제·플릿 정지)와 속도 배율.
+  bindFleet(acs, key) {
+    acs.fleetKey = key;
+    acs.hold = (a) => this.incidents.amrStop(a.id, this.time);
+  }
+
+  // 공급 차질(incidents.js SUPPLY 키). Store·Supply 가 읽는다.
+  supplyHold(target) { return this.incidents.supply(target, this.time); }
 
   // 두 플릿 루트가 만나는 교차로: 같은 구역 객체를 두 ACS 가 같이 잡는다.
   linkCross() {
@@ -213,7 +226,10 @@ export class Plant {
   step(h, host) {
     this.host = host;
     this.time = host.time;
+    this.noteIncidents(host);
     this.faults(host.time, host);
+    this.acs.scale = this.incidents.fleetScale('trim', this.time);
+    if (this.supply) this.supply.acs.scale = this.incidents.fleetScale('parts', this.time);
     this.runSource(h);
     for (const id of this.def.sinks) {
       const cw = this.work[id], u = this.units[id];
@@ -332,14 +348,28 @@ export class Plant {
   }
 
   // ── 고장 타임라인 (period 마다 되풀이). 기본 시나리오는 faults 가 비어 있다. ──
+  // 운영자 주입(incidents.js)도 같은 자리(u.down)로 셀을 세운다. 시나리오 고장이 먼저.
   faults(t, host) {
     const { period, faults } = this.def;
     const tl = period ? t % period : t;
-    for (const f of faults) {
-      const u = this.units[f.id];
-      const on = tl >= f.at && tl < f.at + f.dur;
-      if (on && !u.down) { u.down = f; host.log('error', `${f.id} 고장`, { obs: `${f.why} · ${f.dur}s 정지 예정` }); }
-      else if (!on && u.down === f) { u.down = null; host.log('info', `${f.id} 복구`); }
+    for (const u of Object.values(this.units)) {
+      const f = faults.find((x) => x.id === u.id && tl >= x.at && tl < x.at + x.dur) ?? null;
+      const want = f ?? this.incidents.cellStop(u.id, t);
+      if (want === u.down) continue;
+      if (u.down && !faults.includes(u.down) && !this.incidents.list.includes(u.down)) continue;   // 다른 쪽(점검)이 세운 정지는 그대로
+      const was = u.down;
+      u.down = want;
+      if (f) host.log('error', `${f.id} 고장`, { obs: `${f.why} · ${f.dur}s 정지 예정` });
+      else if (!want && was && faults.includes(was)) host.log('info', `${u.id} 복구`);
+    }
+  }
+
+  // 주입 시작·끝 로그(플릿 설정은 ViewerState 가 남긴다)
+  noteIncidents(host) {
+    for (const { x, on } of this.incidents.changes(this.time)) {
+      if (x.kind === 'fleet') continue;
+      if (on) host.log(x.kind === 'fault' ? 'error' : 'warn', titleOf(x), { obs: `${x.why}${x.end != null ? ` · ${Math.round(x.end - x.at)} s` : ''}` });
+      else host.log('info', `${titleOf(x)} 해제`, { obs: x.kind === 'fault' ? '복구' : '정상 운영' });
     }
   }
 

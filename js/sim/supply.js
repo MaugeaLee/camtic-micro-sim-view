@@ -9,6 +9,7 @@
 // 수량·시간·창고 자리·분류 규칙 모두 가정이다. DOM·three 없음.
 import { Acs } from './acs.js';
 import { partsLayout, toLocal } from './layout.js';
+import { SLOW } from './incidents.js';
 
 export const PARTS_SITE = 'PARTS';
 export const INFEED = 'SORT:IN';
@@ -44,6 +45,7 @@ export class Supply {
     this.seq = 0;
     this.delivered = 0;
     this.trips = 0;
+    this.picked = 0;            // 창고에서 실은 토트 누적
     this.lines = [];
     this.unserved = [];
     this.waiting = [];          // 요청했지만 아직 창고에서 싣지 않은 라인
@@ -117,18 +119,21 @@ export class Supply {
         hand: '토트 적재',
         carry: (id, l) => `토트 ${l.totes.length}개 → SORT 투입`,
       },
-      ready: () => true,
+      // 공급 차질(운영자 주입): 중단이면 창고 도크에서 기다리고(요청은 쌓임), 지연이면 적재 시간이 늘어난다.
+      ready: () => P.supplyHold?.('parts')?.mode !== 'stop',
       pickup: (a) => {
         if (this.fetch === m) this.fetch = null;
         const take = this.waiting.splice(0, S.batch);
+        this.picked += take.length;
         const at = [S.shelf.x, S.shelf.y, S.shelf.z];
+        const load = S.load * (P.supplyHold?.('parts')?.mode === 'slow' ? SLOW : 1);
         m.totes = take.map((x, i) => {
           const e = P.parts.add('tote', { k: 'drop', cell: PARTS_SITE, at }, { size: S.tote.size, h: S.tote.size[1], color: S.tote.color ?? '#2f7dd1', part: x.L.part, dock: x.dock, n: S.qty });
           const to = { k: 'amr', id: a.id, at: this.slots[i] };
-          P.move(e, to, S.load);
+          P.move(e, to, load);
           return { e, x, to };
         });
-        m.T = P.timer(S.load, () => { for (const t of m.totes) P.parts.hold(t.e, t.to, t.e.holder); });
+        m.T = P.timer(load, () => { for (const t of m.totes) P.parts.hold(t.e, t.to, t.e.holder); });
         return m.T;
       },
       load: () => ({ id: ++this.seq, totes: m.totes, dest: null }),
@@ -215,6 +220,7 @@ export class Supply {
     return {
       delivered: this.delivered,
       trips: this.trips,
+      picked: this.picked,
       waiting: this.waiting.length,
       feed: this.feed.view(),
       lines: this.lines.map(({ cell, L, dock, lane }) => ({ cell, line: L.id, dock, lane: lane.id, part: L.part, left: L.left, incoming: L.incoming })),

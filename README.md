@@ -43,8 +43,9 @@ copy .env.example .env
 | `ASSET_DIR` | `src/render_asset` | GLB 디스크 경로 |
 | `ASSET_URL` | `/assets` | 브라우저가 GLB를 받는 URL |
 | `LAYOUT_FILE` | `data/layout.json` | 쓰는 자리. 없으면 `src/layout.default.json`만 읽는다. PUT은 여기만 씀 |
+| `PLANT_FILE` | `data/plant.json` | 공장 이어가기(시뮬 시각·시나리오). 없으면 처음부터. PUT·DELETE는 여기만 |
 
-이미 있는 환경변수가 `.env`보다 우선한다. 브라우저는 `.env`를 읽지 않고, 서버가 `index.html`에 `window.__ENV`로 공개 값만 넣는다. API 경로는 `/api/status` `/api/assets` `/api/config` `/api/asset-viewer` `/api/layout` `/api/process` `/api/docs` `/api/openapi.json`. PUT은 `/api/layout`만(127.0.0.1).
+이미 있는 환경변수가 `.env`보다 우선한다. 브라우저는 `.env`를 읽지 않고, 서버가 `index.html`에 `window.__ENV`로 공개 값만 넣는다. API 경로는 `/api/status` `/api/assets` `/api/config` `/api/asset-viewer` `/api/layout` `/api/plant` `/api/process` `/api/docs` `/api/openapi.json`. 쓰기는 `/api/layout` PUT · `/api/plant` PUT/DELETE(127.0.0.1).
 
 ### 3. 서버 시작
 
@@ -69,7 +70,11 @@ npm run bridge            # B_MQTT_URL 구독 → tcp://127.0.0.1:5558 PUB
 npm run bridge -- --b-demo  # 데모 소스를 구독
 ```
 
-### 4. 브라우저
+### 4. GitHub Pages
+
+`main`에 푸시하면 Actions가 뷰어만 올린다(`context/` `docx/` `server/`는 안 올림). 레포 **Settings → Pages → Source: GitHub Actions**를 한 번 켠다. 주소는 `https://<계정>.github.io/camtic-micro-sim-view/`. 3D·시나리오·localStorage 이어가기는 되고, `/dashboard`·서버 저장은 안 된다.
+
+### 5. 브라우저
 
 `.env`가 예제 그대로면:
 
@@ -78,7 +83,9 @@ npm run bridge -- --b-demo  # 데모 소스를 구독
 | http://127.0.0.1:8790/ | 빈 뷰포트 + 셀 목록 (GLB 안 받음) |
 | http://127.0.0.1:8790/?assets=1 | `PRESS` `SCREW` `SORT` GLB 로드 |
 | http://127.0.0.1:8790/?build=1 | Admin 모드로 시작 (타이틀 옆 버튼과 같음) |
+| http://127.0.0.1:8790/?fresh=1 | 저장된 공장 상태를 읽지 않고 처음부터 |
 | http://127.0.0.1:8790/api/layout | 셀 자리 JSON |
+| http://127.0.0.1:8790/api/plant | 공장 이어가기(시뮬 시각·시나리오). 없으면 404 |
 | http://127.0.0.1:8790/api/layout?download=1 | 같은 JSON을 파일로 |
 | http://127.0.0.1:8790/api/process | 셀 공정 정의(가정값, 읽기 전용) |
 | http://127.0.0.1:8790/api/docs | Swagger UI (엔드포인트 조회·GET 실행) |
@@ -100,9 +107,11 @@ __viewer.loadAssets()
 
 자리는 `.env`의 `LAYOUT_FILE`(기본 `data/layout.json`)이다. 파일이 없으면 `src/layout.default.json`을 읽기만 한다. 레이아웃(v2)에는 셀 자리와 AMR 경로(루트·충전 자리·셀 안 지점)가 같이 들어 있다. Admin(`?build=1`, 경로 편집은 `?build=route`)에서 고친 뒤 「저장」하거나 올리면 `LAYOUT_FILE`에만 쓴다. 이전 v1 파일은 기본 AMR 경로를 붙여 읽는다.
 
+공장 시뮬 시각은 새로고침·서버 재시작 후에도 이어간다(`PLANT_FILE` + 브라우저 localStorage). Admin 「공장 초기화」만 처음부터 다시 시작한다. 레이아웃은 그대로 둔다. 점검용 `?warp=` `?fresh=1` 은 저장을 읽지 않는다.
+
 서버를 띄운 채 코드를 받아오면(`git pull`) 서버도 다시 띄운다. 서버가 시작할 때 읽은 레이아웃 검증 코드로 응답하기 때문이다.
 
-### 5. 확인
+### 6. 확인
 
 ```powershell
 npm test
@@ -116,7 +125,7 @@ curl http://127.0.0.1:8790/api/config
 curl http://127.0.0.1:8790/api/openapi.json
 ```
 
-### 6. 멈추기
+### 7. 멈추기
 
 서버를 띄운 터미널에서 `Ctrl+C`.
 
@@ -144,7 +153,7 @@ curl http://127.0.0.1:8790/api/openapi.json
 | 9 | SCREW 2차 체결. 인서트·컵홀더 포켓, 스크류, 토크 검사. 완료품 구역으로 나간다. | **SCREW 셀.** 1차와 같은 셀이지만 동쪽 작업(인서트·포켓)이 보이게. |
 | 10 | 완료품 적재. 협동로봇이 지그에서 도어트림만 집어 책장에 세운다. 빈 지그는 AMR이 가져간다. | **완료품 구역.** 협동로봇과 책장. 빈 지그 싣고 떠나는 AMR을 따라가지 않음. |
 
-상단 「공정 추적」은 이 순서의 다음 입고를 잡아 타임라인을 남긴다. 추적 중에는 화면을 눌러도 카메라가 유지되고, 좌·우 패널은 그대로 쓴다. 해제는 상단 「추적 중」. 끝나면 카메라는 추적 전 화면으로 돌아간다. `?trace=1`.
+하단 독 「공정 추적」은 이 순서의 다음 입고를 잡아 타임라인을 남긴다. 추적 중에는 화면을 눌러도 카메라가 유지되고, 좌·우 패널은 그대로 쓴다. 해제는 독 「추적 중」. 끝나면 카메라는 추적 전 화면으로 돌아간다. `?trace=1`.
 
 ---
 
@@ -162,6 +171,7 @@ src/render_asset/   PRESS.glb SCREW.glb SORT.glb quadruped.glb drone.glb doortri
 src/layout.default.json  기본 자리 + AMR 경로 (읽기 전용 fallback)
 src/process.default.json 셀 공정 정의(가정값): PRESS 스테이션 흐름·작업 지점·부품 치수, SORT 랙·SCREW 지그 칸
 data/layout.json         쓰는 자리 (LAYOUT_FILE, git 제외)
+data/plant.json          공장 이어가기 (PLANT_FILE, git 제외)
 tests/              Node 헤드리스
 ```
 

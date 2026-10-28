@@ -1,0 +1,48 @@
+# main 푸시 → 뷰어만 GitHub Pages. context/ docx/ server/ 는 올리지 않는다.
+# 레포 Settings → Pages → Source: GitHub Actions 를 한 번 켜야 한다.
+name: pages
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: stage viewer
+        run: |
+          mkdir -p site/src
+          cp index.html .nojekyll site/
+          cp -R css js vendor site/
+          cp src/layout.default.json src/process.default.json site/src/
+          cp -R src/render_asset site/src/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

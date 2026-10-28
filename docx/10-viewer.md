@@ -11,23 +11,26 @@ npm start          → .env 의 HOST:PORT (예제 127.0.0.1:8790)
 npm test           → tests/*.mjs 헤드리스
 /api/docs          → Swagger UI
 ?assets=1          → 셀 GLB 자동 로드 (기본 꺼짐)
-Admin 버튼         → 타이틀 오른쪽. 짓기(집기·놓기) 켜고 끔. `?build=1` 이면 켠 채로 시작
-좌·우 패널         → 가장자리 버튼으로 해당 쪽으로 접기. 남은 탭을 누르면 다시 연다
+Admin 버튼         → 타이틀 오른쪽. 짓기(집기·놓기) 켜고 끔. `?build=1` 이면 켠 채로 시작. 짓기 칸 「공장 초기화」= 시뮬 시각·재고·AMR을 처음부터(레이아웃은 유지)
+좌·우 패널         → 가장자리 버튼으로 해당 쪽으로 접기. 남은 탭을 누르면 다시 연다. 셀·로그·장비 모니터 스크롤은 유리 패널 톤의 가는 막대(`.soft-scroll`)
 ?scenario=faults   → 시나리오(기본 faults · supply · none). 상단 드롭다운으로도 바꿈
 ?amr=2             → 도어트림 AMR 대수 1~10 (기본 = 시나리오 값 6)
 ?play=1            → 재생 상태로 시작
-?warp=130          → 점검용. 시뮬을 그만큼 미리 진행
+?warp=130          → 점검용. 시뮬을 그만큼 미리 진행. 저장된 공장 상태는 읽지 않음
+?fresh=1           → 저장된 공장 상태를 읽지 않고 처음부터
 ?focus=SORT        → 점검용. 셀 id · AMR id(AMR-01) · 로봇 id(HOUND-01·HOUND-02·DRONE-01..03) · 셀 장비 id(PRESS:R6)에 카메라 포커스
 ?drones=0          → 드론 대수 0~3 (기본 = 시나리오 값 3)
 ?inspect=0         → 설비 점검 견마(HOUND-02) 끔
 셀·셀 안 장비·AMR·로봇 클릭   → 장비 모니터(상태·공정·신호). 셀 안 로봇/직교이송/리프트는 `PRESS:R6` 처럼 따로 고른다. 「JSON」 탭 = 상태 문서 원문(복사·내려받기·고정). 콘솔 __viewer.status('PRESS:R6')
-공정 추적           → 상단 버튼. 다음 입고를 공정 단위 핵심 장비로 따라가며 타임라인·JSON 리포트(가정). `?trace=1` · `__viewer.trace`
+공정 추적           → 하단 독 버튼. 다음 입고를 공정 단위 핵심 장비로 따라가며 타임라인·JSON 리포트(가정). `?trace=1` · `__viewer.trace`
 npm run demo       → 장 B 데모 소스(프로세스 안 브로커·가짜 FAC)와 같이 시작. /dashboard 확인용
 npm run bridge     → 조인 브리지(V3-3, 뷰어 서버와 별개 프로세스). `-- --b-demo` 면 데모 소스를 구독. 형식은 `09` 「조인」
 __viewer.loadAssets()   콘솔에서 수동 로드
 ```
 
 의존성 설치 없음. Three r186 은 `vendor/three/`에 필요한 파일만 있다.
+
+GitHub Pages: `*.github.io`면 `MICROSIM_NO_SERVER`. `__ENV` 없이 `src/render_asset/`·`src/process.default.json`을 이 모듈 기준으로 읽는다. `/dashboard`·레이아웃 PUT은 안 된다. 배포는 `.github/workflows/pages.yml` — `main` 푸시 후 뷰어만 올린다(`context/` `docx/` `server/` 제외). 레포 Settings → Pages → Source: GitHub Actions.
 
 ## 레이어
 
@@ -39,14 +42,15 @@ index.html  import map → js/main.js
  env.js       cells.js    hub.js       stage.js       ui.js      loader.js
  (상수)       state.js    (스냅샷)     view.js        (DOM)      (GLTFLoader)
               layout.js   monitor.js   fleet.js                  scan.js
-              scenario.js  trace.js    camera.js pick.js           rigdata.js
+              scenario.js  plant.js    camera.js pick.js           rigdata.js
+                          trace.js
               fleet.js                 field.js place.js
               acs.js route.js          rigs.js parts.js rails.js
               kin.js parts.js
               process.js cellwork.js sortwork.js   outsite.js
               outwork.js supply.js                 partsite.js
               hound.js                             hound.js
-              equip.js                             equip.js
+              equip.js                             equip.js tags.js
    └── DOM 없음, Node 테스트 가능 ──┘    └── three / DOM ──┘
  server/glb.mjs — GLB 헤더·루트 검사 (Node, three 없음)
 ```
@@ -69,11 +73,14 @@ index.html  import map → js/main.js
 | sim | `hound.js` | 견마 관제 보행(가정): 통로 순찰·양보·실제 이상만 Event·자체 리커버리. 도크 정박 제외 | three·DOM, 레일 AMR·OCS·PLC 처럼 쓰기 |
 | sim | `equip.js` | 셀 안 장비 id(`PRESS:R6`). 로봇·직교이송·리프트·몸통 목록. 셀 GLB 를 파일로 쪼개지 않음 | three·DOM, 메시마다 id 부여 |
 | data | `hub.js` | 시뮬 시간 기준 주기 스냅샷(JSON) | 상태 변경, 전송 루프 |
+| data | `plant.js` | 공장 이어가기 dump/validate/`restoreTime`(같은 스텝 재생). 레이아웃·공정 fingerprint | 상태 변경, 서버 I/O |
 | data | `monitor.js` | 장비 하나의 상태 문서(JSON, `microsim.equipment-status/1`): 셀·AMR·순찰 로봇·셀 안 장비(`PRESS:R6`). 같은 장비는 신호 id 목록이 시간에 따라 바뀌지 않는다. UI 「장비 모니터」와 `__viewer.status(id)` 가 읽음 | 상태 변경, PLC 태그·주소·OCS 수집 규격처럼 쓰기 |
-| data | `trace.js` | 키트 하나 공정 추적 문서(`microsim.process-trace/1`). 다음 입고를 잡아 SORT→SCREW 1차→PRESS→SCREW 2차→OUT 단계 시각·대기·순서를 쌓는다. UI 「공정 추적」·`__viewer.trace` | 상태 변경, 확정 공정·OCS 실측처럼 쓰기 |
+| data | `trace.js` | 키트 하나 공정 추적 문서(`microsim.process-trace/1`). 다음 입고를 잡아 SORT→SCREW 1차→PRESS→SCREW 2차→OUT 단계 시각·대기·순서를 쌓는다. 입고가 Cell 작업에 밀리면 `waitWhy`에 그 Cell 하나만 적는다(AMR 충돌·묶음 문구 없음). UI 「공정 추적」·`__viewer.trace` | 상태 변경, 확정 공정·OCS 실측처럼 쓰기 |
 | render | `stage.js` | 렌더러·씬·카메라·컨트롤 1벌. 리사이즈·컨텍스트 손실 | 화면 분할 보조 뷰포트, 상태 보관 |
 | render | `monitor.js` | 관제 모니터(M-29, 가정): 뒷벽 화면 한 장, 내부 CCTV 가상 카메라 6대를 렌더 타깃 3×2 칸에(프레임마다 한 칸). 정의는 `field-def.js` `MONITOR`·`CCTV`. 칸 렌더 때 모니터를 숨겨 되먹임을 막고, 그림자 맵 갱신은 끄지 않는다(끄면 칸이 어둡게 나옴). `?cctv=0` 끔 | 녹화·감지·카메라 배치 최적화(F12), sim import |
 | render | `view.js` | 셀별 그룹, 에셋 부착, 이벤트 → 상태 테두리·바닥 틴트·라벨, 선택 강조 | 상태 변경 |
+| render | `label-text.js` | 머리 위 라벨 문구·색(AMR·드론·견마·자리·셀 장비). three·DOM 없음 | 좌표·그리기 |
+| render | `label.js` `tags.js` | 셀 밖 머리 위 스프라이트. 좌표는 main 이 넘김. 하단 「라벨」로 CellView와 같이 켜고 끔 | 상태 변경 |
 | render | `equip.js` | 셀 안 장비 픽·월드 AABB 포커스·선택 시 메시 색만 바꿈. 메시 `userData.partId` | 상태 변경, 셀 파일을 쪼개기, 선택 AABB 상자 |
 | render | `fleet.js` | AMR 차체·바퀴·상태등·토트, 남은 경로선, ACS 레일·도크·대기 칸 바닥 표시. 레일은 `rails.js` 계획(직선 간선 + 교차점은 가장 넓은 간선 방향의 정사각 패치, 원 표시 없음) | sim import (main이 칸 좌표를 넘김) |
 | render | `rails.js` | AMR 바닥 레일 기하. three·DOM 없음 | 배차·경로 결정 |
@@ -116,7 +123,7 @@ frame():  rdt = min(Δ, 0.1)
           ui.update(state)        0.25 s(벽시계)마다
 ```
 
-부트: `createStage` → 뷰/허브/UI 생성 → `start()`(상태 새로 만들고 `view.setup`) → (옵션) 에셋 로드 → `__ENV.api.status` → `frame()`.
+부트: `createStage` → 뷰/허브/UI 생성 → `GET /api/plant`·localStorage → `start()`(상태 새로 만들고 `view.setup`) → (옵션) 에셋 로드 → 저장된 시각까지 `restoreTime`(같은 스텝 재생) → `__ENV.api.status` → `frame()`. 5초마다·탭 숨김 때 시각을 다시 씀. `?warp=` `?fresh=1` 이면 저장을 읽지 않는다.
 
 ## 좌표·에셋
 
@@ -127,7 +134,7 @@ frame():  rdt = min(Δ, 0.1)
 
 ## 서버 (`server/app-server.mjs`)
 
-시뮬을 돌리지 않는다. 정적 + 읽기 전용(레이아웃 PUT만 예외, 루프백). 리슨·에셋은 `.env`. API 경로는 `server/env.mjs`의 `API` 상수. 버전은 `package.json`.
+시뮬을 돌리지 않는다. 정적 + 읽기 전용(레이아웃 PUT · 공장 상태 PUT/DELETE만 예외, 루프백). 리슨·에셋은 `.env`. API 경로는 `server/env.mjs`의 `API` 상수. 버전은 `package.json`.
 
 | 경로 | 내용 |
 |---|---|
@@ -140,12 +147,13 @@ frame():  rdt = min(Δ, 0.1)
 | `/api/docs` | Swagger UI. OpenAPI 스펙을 읽어 GET 실행 |
 | `/api/openapi.json` | OpenAPI 3 JSON |
 | `/api/layout` | 셀 자리 JSON. GET은 `LAYOUT_FILE` → 기본 파일 순. `?download=1` 이면 첨부. PUT은 127.0.0.1만 · `LAYOUT_FILE`에만 기록 |
+| `/api/plant` | 공장 이어가기(시뮬 시각·시나리오). GET은 `PLANT_FILE`. 없으면 404. PUT·DELETE는 127.0.0.1만 · `PLANT_FILE`에만. 브라우저 localStorage(`microsim.plant/1`)에도 둠 |
 | `/api/process` | 셀 공정 정의(가정값) `src/process.default.json`. 읽기 전용. 점검 실패면 500 |
 | `/dashboard` | 장 B 구독 대시보드 페이지(3D 없음). 아래 「장 B 구독」 |
 | `/api/b/status` · `/api/b/stream` · `/api/b/fac/{view}` | 장 B 구독 상태 · SSE · FAC GET 대리 |
 | `/api/b/inspect` | 수신 점검: 토픽 통계 + 최근 원문 50건과 푼 항목 |
 
-`index.html`의 `/*__ENV__*/`에 공개 설정을 넣는다. API는 GET만(레이아웃 PUT 제외, 나머지 405). `context/`·`docx/`·`server/`는 서빙하지 않는다. `.env`는 git에 올리지 않는다. 공개 설정에 `LAYOUT_FILE` 디스크 경로는 없다.
+`index.html`의 `/*__ENV__*/`에 공개 설정을 넣는다. API는 GET만(레이아웃 PUT · 공장 상태 PUT/DELETE 제외, 나머지 405). `context/`·`docx/`·`server/`는 서빙하지 않는다. `.env`는 git에 올리지 않는다. 공개 설정에 `LAYOUT_FILE` `PLANT_FILE` 디스크 경로는 없다.
 
 ## 장 B 구독 (V3-1, `/dashboard`)
 
@@ -401,11 +409,28 @@ SCREW takt 52 = 21 + 31. 체결은 경로 작업(TCP가 지점들을 지남)이�
 
 ## 공정 추적
 
-상단 「공정 추적」은 **다음 입고 하나**를 창고→SORT→SCREW 1차→PRESS→SCREW 2차→OUT 끝까지 따라가며 단계 시각·대기·순서 맞음을 리포트한다. 값은 시뮬 가정 공정이다. 현장 실측·OCS 수집·품질 RCA가 아니다. 카메라는 도어트림이 아니라 **그 단계의 핵심 장비**로 옮긴다. 단계·보기 표는 `README.md` 「공정 순서 · 카메라」. 추적 중(대기 포함)에는 화면 중앙 상단에 반투명 배너로 공정 이름과 한 줄만 보여 준다. 끝나면 타임라인과 JSON(복사·내려받기)을 남기고, 카메라는 추적이 화면을 잡기 전 풀 뷰로 돌아간다. 추적 중(대기 포함)에는 3D 클릭·목록 선택·궤도 조작이 카메라를 바꾸지 않는다. 좌·우 패널은 접고 펼치며 셀·로그를 고를 수 있다. 카메라 잠금 해제는 상단 「추적 중」을 다시 누르거나 추적 패널을 닫을 때. `?trace=1` 이면 대기 상태로 시작한다. `__viewer.trace`.
+하단 독 「공정 추적」은 **다음 입고 하나**를 창고→SORT→SCREW 1차→PRESS→SCREW 2차→OUT 끝까지 따라가며 단계 시각·대기·순서 맞음을 리포트한다. 값은 시뮬 가정 공정이다. 현장 실측·OCS 수집·품질 RCA가 아니다. 카메라는 도어트림이 아니라 **그 단계의 핵심 장비**로 옮긴다. 단계·보기 표는 `README.md` 「공정 순서 · 카메라」. 추적 중(대기 포함)에는 화면 중앙 상단에 반투명 배너로 공정 이름과 한 줄만 보여 준다. 다음 입고가 후속 Cell 작업에 밀리면 배너·독·타임라인에 「SCREW 공정 지연으로 인한 대기」처럼 Cell 하나만 적는다(`inboundHold`·`waitWhy`). AMR 충돌·도크 점유·셀을 묶은 문구는 쓰지 않는다. 끝나면 타임라인과 JSON(복사·내려받기)을 남기고, 카메라는 추적이 화면을 잡기 전 풀 뷰로 돌아간다. 추적 중(대기 포함)에는 3D 클릭·목록 선택·궤도 조작이 카메라를 바꾸지 않는다. 좌·우 패널은 접고 펼치며 셀·로그를 고를 수 있다. 카메라 잠금 해제는 독 「추적 중」을 다시 누르거나 추적 패널을 닫을 때. `?trace=1` 이면 대기 상태로 시작한다. `__viewer.trace`.
+
+## 하단 패널 · 운영자 주입 (`js/sim/incidents.js`)
+
+micro-assembly 하단 바(설비 고장 주입 · 자재 공급 차질 · 현장 이벤트 · AMR·AGV · CCTV · 리셋)를 이 시뮬 규모로 줄였다. 오케스트레이터·5G·FAC·진화 컨셉·3단계 비교는 가져오지 않았다. 사유·시간·배율은 모두 가정값이다. 버튼은 화면 아래 가운데 떠 있는 독(`#footTools`)에 있고, 기능마다 강조색이 다르다. 독 오른쪽 끝 「?」 를 눌러야 안내 말풍선이 뜬다(기본은 숨김). 「공정 추적」도 이 독에 있다. 실제 안전 PLC·OCS 연동이 아니다.
+
+| 버튼 | 하는 일 | 시뮬 연결 |
+|---|---|---|
+| 설비 고장 주입 | 셀 · 셀 안 장비(`PRESS:R6` 등) · AMR 을 골라 사유·시간(30 s–5분)으로 정지. 「복구」로 바로 해제 | 셀·장비 → 그 셀 `u.down`(DOWN). 장비 하나만 멈추는 모델은 없다. AMR → `a.halt`, 그 자리에 섬. 뒤차는 우회·우선 통행 없이 기다림(`fleet.js` `yieldTo`) |
+| 자재 공급 차질 | 원재료 입고 · 부품 창고 출고를 중단 또는 지연 ×3 | `Store.step` 재보충 멈춤/간격 ×3 · `Supply` 창고 미션 `ready` 막음(요청은 쌓임)/적재 시간 ×3 |
+| 현장 이벤트 | 작업자 진입(셀 안전 정지) · 통로 통제(두 플릿 전체 정지) · 바닥 이상(두 플릿 50% 감속) | `u.down` · `a.halt` · `acs.scale` |
+| AMR | 플릿별 주행·대기·충전 자리·정지 대수, 속도 ×0.5–×1.25, 전체 정지/재개 | `acs.scale`(주행 상한만, 후진·서행 그대로) · `a.halt`(잠금·티켓 유지, 재개하면 이어 감) |
+| CCTV | 뒷벽 관제 모니터 켜기·끄기 · 카메라를 모니터 앞으로 | `ControlMonitor.setEnabled` |
+| 리셋 | Admin 「공장 초기화」와 같다(확인 창) | `resetPlant` |
+
+주입 한 건 = `{ no, kind, type, target, at, end, why, mode?, value? }`. 켜고 끄기는 시뮬 시각으로만 한다. 시뮬이 보는 구간은 **기록한 다음 스텝부터 끝 시각 스텝까지**다. 화면의 「진행 중」은 기록 즉시(일시정지 중에도) 보인다. 공장 이어가기 저장본(`dumpPlant`)에 `incidents` 를 같이 두고, 복원할 때 `restoreTime(state, t, incidents)` 로 다시 재생하면 같은 스텝에서 같은 일이 난다. 기록은 최대 200건이다. 플릿 속도·정지도 같은 기록이다(앞 설정은 새 설정 시각에 끝남). `ViewerState.inject` · `clearIncident` · `setFleetSpeed` · `setFleetHalt`.
+
+검증: `tests/incidents.mjs` — 구간 경계, 셀·장비 고장 DOWN과 복구, AMR 고장 제자리와 다른 차 미관통, 플릿 정지, 속도 ×0.5 상한, 공급 중단 동안 재보충·적재 0과 재개, 지연 ×3 간격, 작업자 진입·통로 통제·바닥 이상, 저장본 재생 결정론(기록이 없으면 달라지는지도), 주입 뒤 25분 안 완료·적재 계속, 소유 위반 0.
 
 ## 메인 뷰 표현
 
-- **셀 상태.** 발자국 둘레 띠와 바닥 틴트로 보인다. 색은 IDLE 회색, BUSY 초록, DOWN 빨강(점멸)이다. 머리 위 라벨에는 id, 상태, 재고/완료, 진행 막대가 나온다. 하단 「Label」은 그 라벨만 숨긴다. 좌·우 패널 글자는 그대로다.
+- **셀 상태.** 발자국 둘레 띠와 바닥 틴트로 보인다. 색은 IDLE 회색, BUSY 초록, DOWN 빨강(점멸)이다. 머리 위 라벨에는 id, 상태, 재고/완료, 진행 막대가 나온다. 하단 「라벨」은 셀뿐 아니라 AMR·드론·견마·자리(OUT·PARTS·STORE)·셀 장비(`PRESS:R6`) 머리 위 표기를 같이 숨긴다. 좌·우 패널 글자는 그대로다.
 - **선택.** 테두리가 굵고 밝아지며 바닥이 펄스한다. 목록이나 3D 클릭으로 고르고, Esc나 빈 곳 클릭으로 해제한다. 셀 바닥·테두리는 셀 통째, 로봇·직교이송·리프트·SORT 몸통은 `PRESS:R6` 처럼 따로(그 메시 색만 바꿈, 상자 없음).
 - **카메라.** 셀을 고르면 그쪽으로 0.9 s 동안 이동한다. AMR·셀 안 장비를 고르면 이동한 뒤 따라간다. 사용자가 궤도를 잡으면 이동을 멈추고, 평행 이동 따라가기만 유지한다.
 

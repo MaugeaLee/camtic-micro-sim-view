@@ -285,8 +285,13 @@ export class Acs {
   ok(id) { return id == null || (!!this.cells[id] && !this.check.badCells.has(id)); }
 
   step(h) {
+    for (const a of this.amrs) a.halt = a.off ? null : this.hold?.(a) ?? null;
     this.assign();
-    for (const a of this.amrs) if (!a.off) a.update(h, this);
+    for (const a of this.amrs) {
+      if (a.off) continue;
+      if (a.halt) a.freeze(h, this);
+      else a.update(h, this);
+    }
   }
 
   // 다른 플릿(peers) 차도 본다 — 같은 SORT 레인·지선 끝을 같이 달린다.
@@ -310,7 +315,7 @@ export class Acs {
   pickAmr(from, m) {
     const id = from ?? (typeof m?.dest === 'function' ? m.dest() : m?.dest);
     const target = (id && this.cells[id]?.entry) || this.homes[0];
-    const free = this.amrs.filter((a) => !a.off && !a.keep && a.mode === 'park' && a.idle && a.battery >= (a.lowLock ? AMR.battery.ready : AMR.battery.low));
+    const free = this.amrs.filter((a) => !a.off && !a.halt && !a.keep && a.mode === 'park' && a.idle && a.battery >= (a.lowLock ? AMR.battery.ready : AMR.battery.low));
     free.sort((a, b) => dist(a, target) - dist(b, target) || a.idx - b.idx);
     return free[0] ?? null;
   }

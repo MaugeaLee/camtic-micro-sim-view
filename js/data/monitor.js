@@ -319,7 +319,8 @@ function amrStatus(state, a) {
   const S = new Signals().in('상태')
     .add('MODE', '운행 모드', 'string', a.mode)
     .add('TASK', '작업', 'string', a.task)
-    .add('OFF', '운휴', 'bool', a.off);
+    .add('OFF', '운휴', 'bool', a.off)
+    .add('HALT', '정지(고장·통제 주입)', 'bool', !!a.halt);
   S.in('주행')
     .add('POS.X', '위치 X', 'real', r3(a.x), 'm')
     .add('POS.Z', '위치 Z', 'real', r3(a.z), 'm')
@@ -341,7 +342,8 @@ function amrStatus(state, a) {
     .add('LOCK', '잡은 셀 잠금', 'string', a.inBranch ?? '')
     .add('WAIT', '진입 대기 셀', 'string', a.waitFor ?? '');
   return {
-    kind: 'amr', name: parts ? '부속 부품 AMR' : '도어트림 AMR', fleet: parts ? 'parts' : 'trim', state: a.off ? 'OFF' : a.mode.toUpperCase(),
+    kind: 'amr', name: parts ? '부속 부품 AMR' : '도어트림 AMR', fleet: parts ? 'parts' : 'trim', state: a.off ? 'OFF' : a.halt ? (a.halt.kind === 'fault' ? 'DOWN' : 'HOLD') : a.mode.toUpperCase(),
+    fault: a.halt ? { why: a.halt.why, until: a.halt.end } : null,
     process: {
       label: a.task,
       mission: m ? { from: m.from ?? null, tag: m.what?.tag ?? null, dest: typeof m.dest === 'string' ? m.dest : a.load?.dest ?? null } : null,

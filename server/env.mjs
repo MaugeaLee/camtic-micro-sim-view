@@ -54,6 +54,7 @@ export const API = Object.freeze({
   docs: '/api/docs',
   openapi: '/api/openapi.json',
   layout: '/api/layout',
+  plant: '/api/plant',
   process: '/api/process',
   bStatus: '/api/b/status',
   bStream: '/api/b/stream',
@@ -75,6 +76,7 @@ export function readConfig(env = process.env) {
     assetDir: env.ASSET_DIR || 'src/render_asset',
     assetUrl: slash(env.ASSET_URL || '/assets', true),
     layoutFile: env.LAYOUT_FILE || 'data/layout.json',
+    plantFile: env.PLANT_FILE || 'data/plant.json',
     apiPrefix: API_PREFIX,
     api: { ...API },
   };

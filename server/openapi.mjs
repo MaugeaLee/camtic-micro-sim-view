@@ -15,7 +15,7 @@ export function buildOpenApi(cfg) {
     openapi: '3.0.3',
     info: {
       title: cfg.name || 'micro-cell-viewer',
-      description: '로컬 뷰어 API. 시뮬은 돌리지 않는다. 쓰기는 레이아웃 PUT(루프백)만. 디스크 경로(`ASSET_DIR` `LAYOUT_FILE`)는 응답에 없다.',
+      description: '로컬 뷰어 API. 시뮬은 돌리지 않는다. 쓰기는 레이아웃 PUT·공장 상태 PUT/DELETE(루프백)만. 디스크 경로(`ASSET_DIR` `LAYOUT_FILE` `PLANT_FILE`)는 응답에 없다.',
       version: cfg.version,
     },
     servers: [{ url: '/', description: '이 프로세스' }],
@@ -24,6 +24,7 @@ export function buildOpenApi(cfg) {
       { name: 'assets', description: '렌더 에셋 조회' },
       { name: 'docs', description: '이 스펙과 Swagger UI' },
       { name: 'layout', description: '셀 자리 JSON. GET은 공개, PUT은 127.0.0.1만' },
+      { name: 'plant', description: '공장 이어가기(시뮬 시각·시나리오). GET은 공개, PUT·DELETE는 127.0.0.1만' },
       { name: 'chapterB', description: '장 B 구독: micro-assembly MQTT·FAC를 읽기만 한다. 발행 없음' },
     ],
     paths: {
@@ -119,6 +120,37 @@ export function buildOpenApi(cfg) {
           responses: {
             200: jsonRes(schemaRef('Layout'), '저장된 레이아웃'),
             400: jsonRes(schemaRef('Error'), '검증 실패'),
+            403: jsonRes(schemaRef('Error'), '루프백 아님'),
+          },
+        },
+      },
+      [api.plant]: {
+        get: {
+          tags: ['plant'],
+          summary: '저장된 공장 시각·시나리오. 없으면 404',
+          operationId: 'getPlant',
+          responses: {
+            200: jsonRes(schemaRef('Plant'), '이어갈 공장 상태'),
+            404: jsonRes(schemaRef('Error'), '저장된 상태 없음'),
+          },
+        },
+        put: {
+          tags: ['plant'],
+          summary: '공장 시각·시나리오를 디스크에 기록. 루프백만',
+          operationId: 'putPlant',
+          requestBody: { required: true, content: { 'application/json': { schema: schemaRef('Plant') } } },
+          responses: {
+            200: jsonRes(schemaRef('Plant'), '저장된 상태'),
+            400: jsonRes(schemaRef('Error'), '검증 실패'),
+            403: jsonRes(schemaRef('Error'), '루프백 아님'),
+          },
+        },
+        delete: {
+          tags: ['plant'],
+          summary: '저장된 공장 상태를 지움(Admin 초기화). 루프백만',
+          operationId: 'deletePlant',
+          responses: {
+            200: jsonRes({ type: 'object', properties: { ok: { type: 'boolean' } } }, '지움'),
             403: jsonRes(schemaRef('Error'), '루프백 아님'),
           },
         },
@@ -232,6 +264,7 @@ export function buildOpenApi(cfg) {
                 docs: { type: 'string' },
                 openapi: { type: 'string' },
                 layout: { type: 'string' },
+                plant: { type: 'string' },
                 process: { type: 'string' },
               },
             },
@@ -273,6 +306,23 @@ export function buildOpenApi(cfg) {
             x: { type: 'number' },
             z: { type: 'number' },
             rotY: { type: 'number', enum: [0, 90, 180, 270] },
+          },
+        },
+        Plant: {
+          type: 'object',
+          required: ['v', 't', 'scenario', 'running', 'speed', 'process'],
+          properties: {
+            v: { type: 'integer', enum: [1] },
+            t: { type: 'number', minimum: 0 },
+            scenario: { type: 'string', nullable: true },
+            running: { type: 'boolean' },
+            speed: { type: 'number', enum: [1, 3, 10, 30] },
+            amr: { type: 'integer', nullable: true },
+            drones: { type: 'integer', nullable: true },
+            inspect: { type: 'boolean', nullable: true },
+            process: { type: 'boolean' },
+            layoutFp: { type: 'string', nullable: true },
+            processFp: { type: 'string', nullable: true },
           },
         },
         Layout: {

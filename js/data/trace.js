@@ -94,16 +94,99 @@ const BLURB = Object.freeze({
 });
 
 // 화면 중앙 상단 배너용. 공정 이름 + 한 줄. DOM 없음.
-export function headlineOf(stage, mode) {
-  if (mode === 'wait') return { title: '공정 추적', detail: '다음 입고 대기' };
+export function headlineOf(stage, mode, hold) {
+  if (mode === 'wait') return { title: '공정 추적', detail: hold ?? '다음 입고 대기' };
   if (!stage) return null;
   const phase = String(stage.label ?? '').match(/ (올림|내림|반출 대기)$/)?.[1] ?? null;
   const title = phase ? stage.label.slice(0, -(phase.length + 1)) : stage.label;
   const key = stage.key ?? '';
-  const detail = phase
+  const detail = hold
+    ?? phase
     ?? BLURB[key]
     ?? (key.startsWith('to-') ? '메인 AMR 이동' : key.startsWith('inbound') ? 'SORT로 운반' : '');
   return { title, detail };
+}
+
+function delayOf(id, down) {
+  if (down) return `${down} 고장으로 인한 대기`;
+  if (!id) return null;
+  return `${id} 공정 지연으로 인한 대기`;
+}
+
+function nextCell(P, e) {
+  const id = typeof P.nextOf === 'function' ? P.nextOf(e) : null;
+  return id && id !== 'OUT' ? id : null;
+}
+
+// 그 셀이 지금 키트를 붙잡고 있는지(작업·반출·고장). 없으면 null.
+function cellJob(P, id) {
+  if (!id || id === 'OUT') return null;
+  const u = P.units?.[id], cw = P.work?.[id];
+  if (u?.down) return { id, kind: 'down' };
+  if (cw?.lift) {
+    const Lf = cw.lift;
+    if (Lf.kit || (Lf.phase && Lf.phase !== 'empty')) {
+      return { id, kind: Lf.phase === 'done' ? 'out' : 'work' };
+    }
+    return null;
+  }
+  if (typeof cw?.busy === 'function' && cw.busy()) return { id, kind: 'work' };
+  if (u?.state === 'DOWN') return { id, kind: 'down' };
+  if (u?.state === 'BUSY') return { id, kind: 'work' };
+  return null;
+}
+
+function downId(P) {
+  for (const id of [...(P.lifts ?? []), P.def?.source ?? 'SORT']) {
+    if (cellJob(P, id)?.kind === 'down') return id;
+  }
+  return null;
+}
+
+// 밀린 Cell 하나. 여러 셀이 바빠도 묶지 않는다. AMR 위치·충돌은 보지 않는다.
+function holdCell(P, prefer) {
+  if (prefer) {
+    const job = cellJob(P, prefer);
+    if (job?.kind === 'down') return { down: prefer };
+    if (job) return { id: prefer };
+    return null;
+  }
+  for (const id of P.lifts ?? []) {
+    const j = cellJob(P, id);
+    if (j?.kind === 'down') return { down: id };
+    if (j) return { id };
+  }
+  return null;
+}
+
+function holdText(P, prefer) {
+  const h = holdCell(P, prefer);
+  return h ? delayOf(h.id, h.down) : null;
+}
+
+// 다음 입고가 안 나가는 이유. 랙이 가득이고 후속 Cell 작업이 밀린 경우만, Cell 하나.
+export function inboundHold(state) {
+  const P = state?.plant;
+  if (!P || P.inM) return null;
+  const down = downId(P);
+  if (down) return delayOf(null, down);
+  const rackFull = P.rack && !P.rack.items.includes(null);
+  if (!rackFull) return null;
+  return holdText(P);
+}
+
+// 추적 중 키트가 서 있는 이유. 다음 칸 Cell 작업이 밀린 경우만. AMR 충돌·도크 점유는 적지 않는다.
+export function waitWhy(state, e) {
+  const P = state?.plant, H = e?.holder;
+  if (!P || !H) return null;
+  if (H.k === 'store' || H.k === 'drop') return inboundHold(state);
+  if (H.k === 'rack') return holdText(P, nextCell(P, e) ?? P.route?.[1] ?? 'SCREW');
+  if (H.k === 'lift' && P.work?.[H.cell]?.lift?.phase === 'done') return holdText(P, nextCell(P, e));
+  if (H.k !== 'amr') return null;
+  const a = P.allAmrs?.find((x) => x.id === H.id);
+  if (!a || a.moving || a.charging) return null;
+  const dest = a.load?.dest && a.load.dest !== 'OUT' ? a.load.dest : nextCell(P, e);
+  return holdText(P, dest);
 }
 
 function holderText(h) {
@@ -240,7 +323,11 @@ export class ProcessTrace {
     const st = stageOf(state, e);
     if (st && this.stages.at(-1)?.key !== st.key) this.push(state, e, st);
     else if (st && this.stages.at(-1) && this.stages.at(-1).label !== st.label) this.stages.at(-1).label = st.label;
-    if (this.stages.at(-1) && waiting(state, e)) this.stages.at(-1)._wait += dt;
+    if (this.stages.at(-1) && waiting(state, e)) {
+      this.stages.at(-1)._wait += dt;
+      const why = waitWhy(state, e);
+      if (why) this.stages.at(-1).why = why;
+    }
     if (waiting(state, e)) this.wait += dt;
     const cell = atCell(e), u = cell ? P.units[cell] : null;
     if (u?.down && this.faults.at(-1)?.cell !== cell) {
@@ -278,8 +365,15 @@ export class ProcessTrace {
     return e ? stageOf(state, e)?.equip ?? null : null;
   }
 
+  holdOf(state) {
+    if (this.mode === 'wait') return inboundHold(state);
+    const e = this.kit != null ? state?.plant?.parts.get(this.kit) : null;
+    return e && waiting(state, e) ? waitWhy(state, e) : null;
+  }
+
   doc(state, ok) {
     const elapsed = this.t0 != null && this.t1 != null ? r1(this.t1 - this.t0) : this.t0 != null && state ? r1(state.time - this.t0) : null;
+    const hold = this.holdOf(state);
     return {
       schema: TRACE_SCHEMA,
       assumed: true,
@@ -297,10 +391,13 @@ export class ProcessTrace {
       visits: [...this.visits],
       ok: this.mode === 'done' ? ok : null,
       why: this.why,
+      waitWhy: hold,
       faults: this.faults.map((f) => ({ ...f })),
-      stages: this.stages.map(({ key, label, t, dur, wait, holder, equip }) => ({ key, label, t, dur, wait, holder, equip })),
+      stages: this.stages.map(({ key, label, t, dur, wait, holder, equip, why }) => (
+        { key, label, t, dur, wait, holder, equip, ...(why ? { why } : {}) }
+      )),
       focus: this.focus(state),
-      banner: headlineOf(this.stages.at(-1) ?? null, this.mode),
+      banner: headlineOf(this.stages.at(-1) ?? null, this.mode, hold),
     };
   }
 

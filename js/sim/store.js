@@ -1,6 +1,8 @@
 // 도어트림 원재료 창고(STORE, 가정 — 부품 창고 동쪽): 선반 칸마다 지그째 키트 엔티티. 입고 부품 AMR 이 도크에 서면 한 칸을 적재면으로 옮기고,
 // 빈 칸은 입고 팔레트(receive)에서 restock 초마다 한 칸씩 채운다. 창고 밖 물류(트럭·지게차)는 가정이고 그리지 않는다.
 // 키트는 칸·팔레트 → 옮김(move) → 칸·AMR 으로만 간다 — AMR·랙 위에서 생기지 않는다. DOM·three 없음.
+import { SLOW } from './incidents.js';
+
 export class Store {
   // def: process cells.SORT.inbound.store, plant: move·timer·time·parts 를 쓴다
   constructor(id, def, plant, spec) {
@@ -24,10 +26,13 @@ export class Store {
   step() {
     const P = this.plant, i = this.items.indexOf(null);
     if (i < 0 || P.time < this.next) return;
+    // 공급 차질(운영자 주입): 중단이면 채우지 않고, 지연이면 재보충 간격을 늘린다.
+    const hold = P.supplyHold?.('raw');
+    if (hold?.mode === 'stop') return;
     const r = this.def.receive;
     const e = P.parts.add('kit', { k: 'drop', cell: this.id, at: [r.x, r.y, r.z] }, this.spec);
     this.items[i] = e;
-    this.next = P.time + this.def.restock;
+    this.next = P.time + this.def.restock * (hold?.mode === 'slow' ? SLOW : 1);
     this.received++;
     P.move(e, this.holder(i), this.def.move);
     P.timer(this.def.move, () => { if (P.parts.get(e.id)) P.parts.hold(e, this.holder(i), e.holder); });

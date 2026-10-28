@@ -9,11 +9,13 @@ console.log('openapi');
 
 const def = buildOpenApi(readConfig({}));
 check('OpenAPI 3', def.openapi.startsWith('3.'));
-check('기본 경로', !!(def.paths['/api/status'] && def.paths['/api/docs'] && def.paths['/api/openapi.json'] && def.paths['/api/asset-viewer'] && def.paths['/api/layout']));
+check('기본 경로', !!(def.paths['/api/status'] && def.paths['/api/docs'] && def.paths['/api/openapi.json'] && def.paths['/api/asset-viewer'] && def.paths['/api/layout'] && def.paths['/api/plant']));
 check('에셋 파일 경로', !!def.paths['/assets/{file}']);
 check('상대 서버', def.servers?.[0]?.url === '/');
 const writes = Object.entries(def.paths).filter(([, item]) => Object.keys(item).some((m) => m !== 'get'));
-check('쓰기는 layout PUT만', writes.length === 1 && writes[0][0] === '/api/layout' && !!writes[0][1].put);
+check('쓰기는 layout PUT · plant PUT/DELETE', writes.length === 2
+  && writes.some(([p, i]) => p === '/api/layout' && i.put)
+  && writes.some(([p, i]) => p === '/api/plant' && i.put && i.delete));
 
 const cfg = mergeConfig({
   name: 'alt', assetUrl: '/models/', assetDir: 'secret/disk',
