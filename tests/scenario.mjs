@@ -65,7 +65,7 @@ check('고장·복구 로그', f.s.logs.some((l) => l.title === 'PRESS 고장') 
 check('고장 중에도 간섭·침범 없음', f.minGap >= 2 * AMR.radius && f.intrude === 0, `min=${f.minGap.toFixed(2)}m intrude=${f.intrude}`);
 
 // PRESS 를 아래로 내려도(접속선만 길어짐) 배송은 이어진다. 움직이던 AMR은 충전 자리로 돌아갔다가 다시 배차된다.
-const moved = { ...defaultLayout(), cells: { ...defaultLayout().cells, PRESS: { x: 4, z: -4, rotY: 0 } } };
+const moved = { ...defaultLayout(), cells: { ...defaultLayout().cells, PRESS: { x: 18, z: -4, rotY: 0 } } };
 const re = run('supply', 900, { layoutAt: { t: 300, doc: moved } });
 const at300 = run('supply', 300).s.plant.delivered;
 check('레이아웃 변경 뒤에도 배송 계속', re.s.plant.delivered > at300 + 5 && re.intrude === 0 && re.passes === 0,

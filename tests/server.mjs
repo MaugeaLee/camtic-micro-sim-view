@@ -94,7 +94,7 @@ try {
   const u = `http://127.0.0.1:${moved.port}`;
   const empty = await (await fetch(`${u}${moved.cfg.api.layout}`)).json();
   check('없는 파일은 기본 자리', empty.cells.PRESS.x === defaultLayout().cells.PRESS.x);
-  const next = { ...defaultLayout(), cells: { ...defaultLayout().cells, PRESS: { x: 4, z: 6, rotY: 0 } } };
+  const next = { ...defaultLayout(), cells: { ...defaultLayout().cells, PRESS: { x: 18, z: 6, rotY: 0 } } };
   next.amr = { ...next.amr, homes: next.amr.homes.slice(0, 3) };
   const put = await fetch(`${u}${moved.cfg.api.layout}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(next) });
   const saved = await put.json();

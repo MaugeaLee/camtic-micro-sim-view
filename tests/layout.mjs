@@ -27,12 +27,12 @@ check('바닥 밖 거부', validateLayout({ ...base, cells: { ...base.cells, PRE
 const clash = moveCell(base, 'PRESS', poseOf(0, -2));
 check('겹치면 거부', clash.ok === false && clash.errors.some((e) => e.includes('겹침')));
 
-check('기본 순서 서→동 SORT · PRESS · SCREW', base.cells.SORT.x < base.cells.PRESS.x && base.cells.PRESS.x < base.cells.SCREW.x);
+check('기본 순서 서→동 SORT · SCREW · PRESS', base.cells.SORT.x < base.cells.SCREW.x && base.cells.SCREW.x < base.cells.PRESS.x);
 
-const ok = moveCell(base, 'PRESS', poseOf(4, 6));
+const ok = moveCell(base, 'PRESS', poseOf(18, 6));
 check('빈 칸 이동', ok.ok === true && ok.doc.cells.PRESS.z === 6 && validateLayout(ok.doc).length === 0);
 
-const rot = poseOf(4, -2, 90);
+const rot = poseOf(18, -2, 90);
 check('90°는 발자국 교환 후에도 기본 자리 안', canPlace({ ...base, cells: { ...base.cells, PRESS: rot } }, 'PRESS', rot).length === 0);
 check('모르는 셀 거부', canPlace(base, 'A-3-1', poseOf(0, 0)).length > 0);
 

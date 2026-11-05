@@ -22,7 +22,7 @@ export const FOOTPRINT = Object.freeze({
 
 // 셀이 아닌 AMR 자리(GLB 없음, 절차 형상). OUT = 완료품 적재 구역(협동로봇 + 책장), PARTS = 부속 부품 창고. 자리·크기는 가정이다.
 // OUT 은 PRESS 발자국의 절반(5.05×5.41 m), SORT 서쪽(기본 −30, −2)에 따로 둔다. 예전 SORT 옆 5×3 통과형·PRESS 전체 크기는 쓰지 않는다.
-// PARTS 는 남쪽 통로의 PRESS 도크 구역과 SCREW 도크 구역 사이(접속 구역이 도크 구역과 합쳐지면 도크에서 다음 미션을 기다리는 차가 길을 막는다).
+// PARTS 는 남쪽 통로의 SCREW 도크 구역과 PRESS 도크 구역 사이(접속 구역이 도크 구역과 합쳐지면 도크에서 다음 미션을 기다리는 차가 길을 막는다).
 // STORE = 도어트림 원재료 창고. PARTS 동쪽에 붙여 한 줄(같은 크기 · 남쪽 통로 도크). 지개차 AMR 이 SORT:RAW 로 나른다.
 // 레이아웃 파일에 없으면 기본 자리를 붙인다(예전 파일도 그대로 읽힌다).
 export const SITES = Object.freeze(['OUT', 'PARTS', 'STORE']);
@@ -32,12 +32,12 @@ export const DEFAULT_SITES = Object.freeze({
   STORE: Object.freeze({ x: 16, z: -14, rotY: 0 }),
 });
 
-// 가정 자리. 서→동 SORT · PRESS · SCREW 한 줄, 통로(+z)는 비운다.
+// 가정 자리. 서→동 SORT · SCREW · PRESS 한 줄, 통로(+z)는 비운다.
 // 셀 GLB AMR 통로 입구가 서쪽 끝이라 셀 서쪽마다 AMR 세로 통로 칸(폭 2.7~3.9 m)을 남긴다. 겹침 없음.
 export const DEFAULT_POSES = Object.freeze({
   SORT: Object.freeze({ x: -13, z: -2, rotY: 0 }),
-  PRESS: Object.freeze({ x: 4, z: -2, rotY: 0 }),
-  SCREW: Object.freeze({ x: 18, z: -2, rotY: 0 }),
+  SCREW: Object.freeze({ x: 4, z: -2, rotY: 0 }),
+  PRESS: Object.freeze({ x: 18, z: -2, rotY: 0 }),
 });
 
 const IDS = CELLS.map((c) => c.id);

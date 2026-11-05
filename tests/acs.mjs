@@ -81,12 +81,12 @@ check('운휴 차는 그대로, 나머지로 배송 계속', c.amrs.filter((a) =
 
 // 막힌 셀(루트 끊김)은 배차하지 않는다
 const cut = structuredClone(defaultLayout());
-// G2 지선은 PRESS 출구·SCREW 입구가 같이 쓴다 — SCREW 출구 지선(A3–G3)을 끊는다
+// G2 지선은 SCREW 출구·PRESS 입구가 같이 쓴다 — PRESS 출구 지선(A3–G3)을 끊는다
 cut.amr.route.edges = cut.amr.route.edges.filter((e) => !(e.a === 'A3' && e.b === 'G3'));
 const b = new ViewerState({ scenario: 'supply', amr: 4, layout: normalizeLayout(cut) });
 for (let i = 0; i < 6000; i++) b.step(0.1);
 const u = Object.fromEntries(b.plant.summary().units.map((x) => [x.id, x]));
-check('SCREW 가 루트에서 끊기면 SCREW 로는 안 가고 PRESS 로만', !b.acs.ok('SCREW') && b.amrs.every((a) => a.load?.dest !== 'SCREW') && u.PRESS.done > 0 && b.plant.delivered > 0,
+check('PRESS 가 루트에서 끊기면 PRESS 로는 안 가고 SCREW 는 돈다', !b.acs.ok('PRESS') && b.amrs.every((a) => a.load?.dest !== 'PRESS') && u.SCREW.done > 0 && b.plant.delivered > 0,
   `issues=${b.acs.check.issues.join(' · ')}`);
 
 console.log(`  ${pass} pass, ${fail} fail`);

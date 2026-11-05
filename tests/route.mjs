@@ -37,11 +37,11 @@ cut.amr.route.edges = cut.amr.route.edges.filter((e) => !(e.a === 'A1' && e.b ==
 const r2 = routeIssues(normalizeLayout(cut));
 check('끊긴 루트 → 도달 불가 셀', r2.badCells.size > 0, r2.issues.join(' · '));
 
-// 교차 구역: 셀 입구·출구 접속점. 가까운 접속점(SORT 출구·PRESS 입구)은 하나로 합친다
+// 교차 구역: 셀 입구·출구 접속점. 가까운 접속점(SORT 출구·SCREW 입구)은 하나로 합친다
 const zs = junctions(g, geo);
-const shared = zs.find((z) => z.cells.includes('PRESS') && z.cells.includes('SORT'));
-check('교차 구역 · SORT 출구와 PRESS 입구는 한 구역 · PRESS 출구와 SCREW 입구도 한 구역 · SCREW 출구 따로', zs.length >= 5 && !!shared && zs.filter((z) => z.cells.includes('OUT')).length === 1
-  && zs.some((z) => z.cells.includes('PRESS') && z.cells.includes('SCREW')) && zs.filter((z) => z.cells.includes('SCREW')).length === 2, zs.map((z) => `${z.cells.join('+')}@${z.x.toFixed(1)},${z.z.toFixed(1)} r${z.r.toFixed(2)}`).join(' '));
+const shared = zs.find((z) => z.cells.includes('SCREW') && z.cells.includes('SORT'));
+check('교차 구역 · SORT 출구와 SCREW 입구는 한 구역 · SCREW 출구와 PRESS 입구도 한 구역 · PRESS 출구 따로', zs.length >= 5 && !!shared && zs.filter((z) => z.cells.includes('OUT')).length === 1
+  && zs.some((z) => z.cells.includes('PRESS') && z.cells.includes('SCREW')) && zs.filter((z) => z.cells.includes('PRESS')).length === 2, zs.map((z) => `${z.cells.join('+')}@${z.x.toFixed(1)},${z.z.toFixed(1)} r${z.r.toFixed(2)}`).join(' '));
 check('충전 자리는 교차 구역 밖', L.amr.homes.every((h) => zs.every((z) => Math.hypot(h.x - z.x, h.z - z.z) > z.r + 0.62)));
 const map = mapOf(routeGeo(L));
 check('그리기용 지도: 간선 9 · 충전 자리 6 · 셀 3 + 완료품 적재 구역(원재료 하역·창고는 지개차 루트) · 충전 자리는 루트를 등진다', map.edges.length === 9 && map.homes.length === 6 && map.cells.length === 4 && !map.cells.find((c) => c.id === 'OUT').bad

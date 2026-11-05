@@ -194,7 +194,11 @@ export class Amr {
     const { o, along } = hit;
     // 내가 잡은 구역 밖에 선 차는 들어가려고 기다리는 중(yieldTo 가 zoneGap 보다 먼저라 zoneWait 가 비어 있을 수 있다).
     const mine = fleet.zones?.filter((Z) => Z.holder === this) ?? [];
-    if (mine.length && mine.every((Z) => Math.hypot(o.x - Z.x, o.z - Z.z) >= Z.r - 0.05)) {
+    const od = o.wantDir ?? { x: Math.sin(o.heading), z: Math.cos(o.heading) };
+    const sameWay = dir.x * od.x + dir.z * od.z > 0.5;
+    // 같은 방향으로 구역 밖에서 기다리는 차는 막지 않는다(서로 기다리면 구역을 못 비운다).
+    // 지선으로 가로지르는 차는 막는다. PRESS 남쪽 도크와 STORE 가 한 구역이면 충전 지선이 그 경계와 겹친다.
+    if (mine.length && mine.every((Z) => Math.hypot(o.x - Z.x, o.z - Z.z) >= Z.r - 0.05) && sameWay) {
       this.blockedOn = null; this.blockT = 0; return Infinity;
     }
     const stopAt = 2 * AMR.radius + 0.35;
@@ -210,7 +214,7 @@ export class Amr {
     const b = this.bound;
     const od0 = o.wantDir ?? { x: Math.sin(o.heading), z: Math.cos(o.heading) };
     const behind = dir.x * od0.x + dir.z * od0.z > 0.7;
-    // 같은 칸 잠금 안에서는 줄로 선다. 다른 칸 차(G2: PRESS 출구·SCREW 입구)와는 줄이 아니다 — 구역을 잡은 쪽이 지나고
+    // 같은 칸 잠금 안에서는 줄로 선다. 다른 칸 차(G2: SCREW 출구·PRESS 입구)와는 줄이 아니다 — 구역을 잡은 쪽이 지나고
     // 아닌 쪽은 구역 간격으로 선다. 잠금 구간에서는 우회하지 않는다(지선 밖으로 빠져 서로 막지 않게).
     const queued = (this.inBranch && o.inBranch === this.inBranch) || (o.zoneWait && !fleet.holding?.(this)) || (b && behind && (o.waitFor === b || o.inBranch === b || (o.bound === b && !o.moving)));
     if (queued) { this.blockedOn = o; this.blockT = 0; return null; }
