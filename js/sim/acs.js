@@ -472,7 +472,7 @@ export class Acs {
   // ── 이동 구간 ──
   // from: {kind:'home',i} | {kind:'cell',id} (도크에 서 있음) | {kind:'free',x,z}. to: {kind:'cell',id} | {kind:'home',i}
   // 반환 단계: 출발(후진 출차·셀 잠금 해제) → 메인 루트 → (셀이면) 진입 대기·잠금 → 접속선 → 입구 / (충전 자리면) 저속 진입.
-  travel(a, from, to) {
+  travel(a, from, to, opt = {}) {
     const steps = [];
     let start, rev = false, leaveCell = null;
     if (from.kind === 'home') { start = this.homes[from.i]; rev = true; }
@@ -491,13 +491,26 @@ export class Acs {
       }
     } else start = { x: from.x, z: from.z };
     const B = to.kind === 'cell' ? this.cells[to.id].entry : this.homes[to.i];
-    const j = journey(this.graph, start, B);
+    // 실은 차는 지선에 바로 들어가지 않는다. 충전 자리 반대편 통로에서 리프트가 빌 때까지 기다린 뒤 들어간다.
+    // 빈 차(반출)가 같은 지선으로 들어오는 길을 막지 않게.
+    let pocket = null;
+    if (!opt.skipPocket && to.kind === 'cell' && a.load && this.blockEntry?.(to.id, a)) pocket = this.sidePocket(to.id);
+    const j = journey(this.graph, start, pocket ?? B);
     if (!j) return null;
     const pts = j.pts;
     if (j.joinOut < j.joinIn) j.joinOut = j.joinIn;
     // 출발: 첫 접속점까지 (후진 출차면 후진). 셀에서 나오면 여기서 잠금을 푼다.
     steps.push({ go: pts.slice(1, j.joinIn + 1), rev });
     if (leaveCell) steps.push({ do: () => this.release(leaveCell.id, a) });
+    if (pocket) {
+      const midP = pts.slice(j.joinIn, j.joinOut + 1);
+      const tailP = [...midP.slice(1), ...pts.slice(j.joinOut + 1)];
+      if (tailP.length) steps.push({ go: tailP });
+      steps.push({ until: () => !this.blockEntry(to.id, a), label: `${to.id} 작업 끝날 때까지` });
+      const rest = this.travel(a, { kind: 'free', x: pocket.x, z: pocket.z }, to, { skipPocket: true });
+      if (rest) steps.push(...rest);
+      return steps.filter((s) => !s.go || s.go.length);
+    }
     const mid = pts.slice(j.joinIn, j.joinOut + 1);
     if (to.kind === 'cell') {
       const id = to.id, L = pathLength(mid);
@@ -524,6 +537,18 @@ export class Acs {
       steps.push({ go: norm }, { go: creep, creep: true });
     }
     return steps.filter((s) => !s.go || s.go.length || s.gate);
+  }
+
+  // 셀 입구가 붙은 지선의 통로 끝에서, 충전 자리 덩어리의 반대쪽으로 6 m. 반출 차의 진입 길 밖이다.
+  sidePocket(id) {
+    const entry = this.cells[id]?.entry;
+    if (!entry || !this.homes.length) return null;
+    const at = attach(this.graph, entry);
+    if (!at) return null;
+    const far = dist(entry, at.edge.pa) > dist(entry, at.edge.pb) ? at.edge.pa : at.edge.pb;
+    const hx = this.homes.reduce((s, h) => s + h.x, 0) / this.homes.length;
+    const dir = Math.sign(far.x - hx) || 1;
+    return { x: far.x + dir * 6, z: far.z };
   }
 
   // 진입 대기점: 접속점 HOLD m 앞, 교차 구역 안이면 구역 밖까지 더 물러난다(대기 차가 구역을 막지 않게).
@@ -574,6 +599,11 @@ export class Acs {
     const L = this.locks[id];
     if (!L) return false;
     if (L.inside.has(a)) { a.inBranch = id; return true; }
+    // 실은 차는 리프트가 아직 지그를 들고 있으면 줄을 서지 않는다. 빈 차(반출)가 먼저 들어가게.
+    if (this.blockEntry?.(id, a)) {
+      L.line = L.line.filter((k) => k !== a);
+      return false;
+    }
     if (!L.line.includes(a)) L.line.push(a);
     if (L.line[0] !== a || L.inside.size >= L.cap) return false;
     L.line.shift();

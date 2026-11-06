@@ -74,11 +74,13 @@ export const DEFAULT_PARTS_AMR = Object.freeze({
       { a: 'W2', b: 'Q0' }, { a: 'W0', b: 'W2' }, { a: 'W0', b: 'W1' }, { a: 'W3', b: 'W2', oneway: true },
     ],
   },
-  // 충전 자리 6: 창고 줄(부품 PARTS · 원재료 STORE) 좌우, 남쪽 통로 옆. 서 2 · 동 4. 창고 도크(x 10 · 14.5) 앞은 비운다.
-  // 서쪽을 x 3.0 으로 늘리면 서쪽 셀(SCREW) 남쪽 도크와 맞물려 교착이 나서, 늘린 3칸은 STORE 동쪽에 둔다.
+  // 충전 자리 6: 서 2는 남쪽 통로, 동 4 중 2는 북쪽 통로·2는 남쪽. 창고 도크(x 10 · 14.5) 앞은 비운다.
+  // 서쪽을 x 3.0 으로 늘리면 서쪽 셀(SCREW) 남쪽 도크와 맞물려 교착이 난다.
+  // 동쪽 남쪽 2칸은 지개차(x 22.8 · 24.2) 동쪽. 그 앞 두 칸은 북쪽 통로에 둔다.
   homes: [
     { x: 4.4, z: -13.4 }, { x: 5.8, z: -13.4 },
-    { x: 22.4, z: -13.4 }, { x: 23.8, z: -13.4 }, { x: 25.2, z: -13.4 }, { x: 26.6, z: -13.4 },
+    { x: 21.0, z: 8.2 }, { x: 22.4, z: 8.2 },
+    { x: 25.2, z: -13.4 }, { x: 26.6, z: -13.4 },
   ],
   cells: {
     PARTS: { entry: { x: 0, z: 2.1 }, stops: [{ x: 0, z: 1.3 }], exit: null },
@@ -95,9 +97,9 @@ export const JACK = Object.freeze({ deck: 0.42, count: 2 });
 export const JACK_IDS = Object.freeze(['STORE', 'SORT:RAW']);
 export const DEFAULT_JACK_AMR = Object.freeze({
   route: DEFAULT_PARTS_AMR.route,
-  // STORE 동쪽 · 부품 동쪽 충전 덩어리 서쪽. 피치 1.4 m.
+  // PRESS 남쪽 도크와 STORE 가 한 구역(동쪽 끝 x 20.1)이라, 그 경계의 출차 지선(예전 x 20)은 쓰지 않는다.
   homes: [
-    { x: 20.0, z: -13.4 }, { x: 21.4, z: -13.4 },
+    { x: 22.8, z: -13.4 }, { x: 24.2, z: -13.4 },
   ],
   cells: {
     STORE: { entry: { x: -1.5, z: 2.1 }, stops: [{ x: -1.5, z: 1.3 }], exit: null },

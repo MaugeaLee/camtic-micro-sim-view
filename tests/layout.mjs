@@ -132,7 +132,8 @@ check('스탬프에 AMR 경로 포함', layoutStamp(base) !== layoutStamp({ ...b
   const sub = base.parts.homes, west = sub.filter((h) => h.x < P.x - hw), east = sub.filter((h) => h.x > P.x + hw);
   check('부품 충전 자리는 창고 좌우(서 2 · 동 4 · 도크 앞 아님) · 도어트림은 북쪽 통로 한 줄 6',
     base.amr.homes.length === 6 && base.amr.homes.every((h, i) => h.z === 9.6 && (!i || Math.abs(h.x - base.amr.homes[i - 1].x + 1.4) < 1e-6))
-    && west.length === 2 && east.length === 4 && west.concat(east).every((h) => h.z === -13.4)
+    && west.length === 2 && west.every((h) => h.z === -13.4)
+    && east.length === 4 && east.filter((h) => h.z === -13.4).length === 2 && east.filter((h) => h.z === 8.2).length === 2
     && !sub.some((h) => Math.abs(h.x - P.x) < 2),
     JSON.stringify({ trim: base.amr.homes, sub, P }));
 }
