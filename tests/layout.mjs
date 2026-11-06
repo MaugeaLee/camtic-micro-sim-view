@@ -27,12 +27,12 @@ check('바닥 밖 거부', validateLayout({ ...base, cells: { ...base.cells, PRE
 const clash = moveCell(base, 'PRESS', poseOf(0, -2));
 check('겹치면 거부', clash.ok === false && clash.errors.some((e) => e.includes('겹침')));
 
-check('기본 순서 서→동 SORT · PRESS · SCREW', base.cells.SORT.x < base.cells.PRESS.x && base.cells.PRESS.x < base.cells.SCREW.x);
+check('기본 순서 서→동 SORT · SCREW · PRESS', base.cells.SORT.x < base.cells.SCREW.x && base.cells.SCREW.x < base.cells.PRESS.x);
 
-const ok = moveCell(base, 'PRESS', poseOf(4, 6));
+const ok = moveCell(base, 'PRESS', poseOf(18, 6));
 check('빈 칸 이동', ok.ok === true && ok.doc.cells.PRESS.z === 6 && validateLayout(ok.doc).length === 0);
 
-const rot = poseOf(4, -2, 90);
+const rot = poseOf(18, -2, 90);
 check('90°는 발자국 교환 후에도 기본 자리 안', canPlace({ ...base, cells: { ...base.cells, PRESS: rot } }, 'PRESS', rot).length === 0);
 check('모르는 셀 거부', canPlace(base, 'A-3-1', poseOf(0, 0)).length > 0);
 
@@ -132,7 +132,8 @@ check('스탬프에 AMR 경로 포함', layoutStamp(base) !== layoutStamp({ ...b
   const sub = base.parts.homes, west = sub.filter((h) => h.x < P.x - hw), east = sub.filter((h) => h.x > P.x + hw);
   check('부품 충전 자리는 창고 좌우(서 2 · 동 4 · 도크 앞 아님) · 도어트림은 북쪽 통로 한 줄 6',
     base.amr.homes.length === 6 && base.amr.homes.every((h, i) => h.z === 9.6 && (!i || Math.abs(h.x - base.amr.homes[i - 1].x + 1.4) < 1e-6))
-    && west.length === 2 && east.length === 4 && west.concat(east).every((h) => h.z === -13.4)
+    && west.length === 2 && west.every((h) => h.z === -13.4)
+    && east.length === 4 && east.filter((h) => h.z === -13.4).length === 2 && east.filter((h) => h.z === 8.2).length === 2
     && !sub.some((h) => Math.abs(h.x - P.x) < 2),
     JSON.stringify({ trim: base.amr.homes, sub, P }));
 }

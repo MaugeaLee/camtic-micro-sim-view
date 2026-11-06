@@ -7,7 +7,8 @@
 // outwork.js) — 협동로봇이 도어트림만 집어 책장에 꽂고, 빈 지그를 실은 AMR 은 충전 자리로 돌아가 지그를 내려놓는다(회수 물류는 가정, 그리지 않음).
 // 리프트 셀(PRESS·SCREW)은 cellwork.js 가 돌리고, 셀 상태·진행률·재고는 거기서 읽는다. SORT 적재는 sortwork.js.
 // 흐름 없는 셀은 지그 자리(slots)로 옮김만 한다. 공정 정의가 없으면 예전처럼 사이클 타이머만 돈다.
-// 교착 방지: 키트는 다음 칸 리프트가 비고 예약이 없을 때만 예약하고 간다(없으면 실은 채 충전 자리 대기, 뒤 공정 키트 먼저).
+// 교착 방지: 셀 안 잠금은 한 대. 실은 차는 리프트가 지그를 들고 있는 동안 잠금을 잡지 않는다(ops.js).
+// 운영 오퍼레이터(Ops)는 서쪽 입구를 한 대씩 쓴다. 실은 차가 빠진 뒤에 픽업 차를 보내고, 픽업이 끝나 셀이 빈 뒤에 다음 실은 차를 보낸다.
 // 흐름 안 키트 수(WIP)는 플릿 − 1 이하 — 리프트에 키트가 있으면 빈 AMR 이 적어도 한 대 있다.
 import { Acs, shareCross } from './acs.js';
 import { Hound } from './hound.js';
@@ -24,6 +25,7 @@ import { Store } from './store.js';
 import { normalizeProcess, outDef, passOf, supplyDef, workDef } from './process.js';
 import { Supply } from './supply.js';
 import { Incidents, titleOf } from './incidents.js';
+import { Ops } from './ops.js';
 
 const smooth = (u) => u * u * (3 - 2 * u);
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -115,6 +117,8 @@ export class Plant {
     this.lifts = [];            // 리프트 셀 id
     this.inFlow = new Set();    // 분류 뒤 ~ 적재 구역 전 키트 엔티티
     this.acs.onHome = (a) => this.dropJig(a);
+    this.ops = new Ops(this);
+    this.acs.blockEntry = (id, a) => this.ops.blockEntry(id, a);
     this.hound = new Hound({ layout });   // 견마: 통로 관제 보행 · 이상 감지·전파·접촉 리커버리(가정)
     this.health = new CellHealth([def.source, ...def.sinks]);
     this.inspector = def.inspect === false ? null : new InspectHound({ layout, cells: [def.source, ...def.sinks], health: this.health });
@@ -559,7 +563,7 @@ export class Plant {
   }
 
   // 배차 요청: 키트 수(+10초 안에 나올 키트)만큼, 선행 배차 상한 stage 안에서 ACS에 픽업 미션을 넣는다.
-  // 공정 순서(route)가 있으면: 리프트 셀 작업이 곧 끝나면(cellwork outSoon) 셀마다 반출(hop) 미션 하나, 분류 적재는 흐름 안 키트(WIP)가
+  // 공정 순서(route)가 있으면 Ops 가 셀마다 반출을 주행 시간만큼 미리 걸고, 분류 적재는 흐름 안 키트(WIP)가
   // 플릿 − 1 이하일 때만 — 리프트에 키트가 있으면 빈 AMR 이 늘 남는다(실은 차가 모두 리프트 비기를 기다리는 교착이 없다).
   // 리프트 하나에 2개(작업 중 1 + 오가는 1)를 넘으면 실은 채 충전 자리에서 기다리는 차만 는다 — 그 위로는 싣지 않는다(가정).
   dispatch() {
@@ -568,7 +572,10 @@ export class Plant {
     if (this.route) {
       for (const id of this.lifts) {
         const cw = this.work[id];
-        if (!cw.outM && !this.units[id].down && cw.outSoon()) cw.outM = this.acs.request(this.hopMission(id));
+        if (!cw.outM && !this.units[id].down && this.ops.due(id)) {
+          cw.outM = this.acs.request(this.hopMission(id));
+          this.ops.pulls++;
+        }
       }
       const fleet = this.acs.amrs.filter((a) => !a.off).length;
       need = Math.min(need, Math.min(Math.max(1, fleet - 1), 2 * this.lifts.length) - this.wip());
@@ -588,7 +595,8 @@ export class Plant {
   // ── 공정 순서: 키트 엔티티 step = 마지막으로 들른 route 칸 번호(분류 SORT = 0) ──
   nextOf(e) { return this.route?.[(e?.step ?? 0) + 1] ?? null; }
 
-  // 다음 칸 예약. 리프트 셀은 리프트가 비고 다른 예약이 없을 때만, 뒤 공정(step 큰) 키트가 같은 셀을 기다리면 양보. 없으면 null(충전 자리 대기).
+  // 다음 칸 예약. 리프트가 비었거나, Ops 가 끝나는 시각에 맞춰 미리 출발시켜도 되면 예약한다.
+  // 뒤 공정(step 큰) 키트가 같은 셀을 기다리면 양보. 없으면 null(충전 자리 대기).
   stageOf(load) {
     const e = load.e;
     if (!e) return this.acs.ok('OUT') ? 'OUT' : null;
@@ -598,11 +606,15 @@ export class Plant {
     const cw = this.work[id];
     if (!cw) return null;
     if (cw.reserved === load.amr) return id;
-    if (cw.reserved || this.units[id].down || !cw.canAccept(false)) return null;
+    if (cw.reserved || this.units[id].down) return null;
+    const amr = this.acs.amrs.find((a) => a.id === load.amr);
+    const early = !cw.canAccept(false);
+    if (early && !this.ops.approach(id, amr)) return null;
     // 뒤 공정 키트 먼저, 같은 공정이면 먼저 분류된 키트 먼저(줄 순서 — 대기 차 배열 순서로 정하면 뒤 번호 차가 굶는다)
     const first = (x, y) => (x.step ?? 0) > (y.step ?? 0) || ((x.step ?? 0) === (y.step ?? 0) && (x.no ?? x.id) < (y.no ?? y.id));
     if (this.acs.amrs.some((b) => b.load?.e && b.load !== load && b.load.dest == null && this.nextOf(b.load.e) === id && first(b.load.e, e))) return null;
     cw.reserved = load.amr;
+    if (early) this.ops.pushes++;
     return id;
   }
 
@@ -768,6 +780,7 @@ export class Plant {
       shipped: this.work.OUT?.shipped ?? 0,
       units: Object.values(this.units).map(({ id, state, stock, done, progress }) => ({ id, state, stock, done, progress })),
       wip: this.route ? this.wip() : null,
+      ops: this.ops?.view() ?? null,
       acs: this.acs.summary(),
       supply: this.supply ? { delivered: this.supply.delivered, acs: this.supply.acs.summary() } : null,
       jacks: this.jacks ? this.jacks.summary() : null,

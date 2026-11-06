@@ -3,8 +3,8 @@
   "snap": 1,
   "cells": {
     "SORT": { "x": -13, "z": -2, "rotY": 0 },
-    "PRESS": { "x": 4, "z": -2, "rotY": 0 },
-    "SCREW": { "x": 18, "z": -2, "rotY": 0 }
+    "SCREW": { "x": 4, "z": -2, "rotY": 0 },
+    "PRESS": { "x": 18, "z": -2, "rotY": 0 }
   },
   "sites": {
     "OUT": { "x": -30, "z": -2, "rotY": 0 },
